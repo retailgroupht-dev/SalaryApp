@@ -1,6 +1,7 @@
 'use strict';
 // Спільна логіка роботи з даними: нею користуються і вікно (IPC у main.js), і HTTP API (api.js).
 const lib = require('./lib');
+const np = require('./np');
 
 function todayLocal() {
   const d = new Date();
@@ -23,7 +24,8 @@ async function fetchText(url) {
 }
 
 class Service {
-  constructor(store) { this.store = store; }
+  // opts.fetch — підміна fetch для Нової Пошти в тестах.
+  constructor(store, opts = {}) { this.store = store; this.fetch = opts.fetch || null; }
   get data() { return this.store.data; }
 
   // ---------- налаштування ----------
@@ -43,6 +45,7 @@ class Service {
       a.token = String(a.token || '').trim();
       s.api = a;
     }
+    if (patch.np) s.np = { apiKey: String(patch.np.apiKey || '').trim() };
     this.store.save();
     return s;
   }
@@ -109,6 +112,9 @@ class Service {
       channel: String(order.channel || '').trim(),
       status: lib.STATUS[order.status] ? order.status : 'checking',
       date: isDate(order.date) ? order.date : todayLocal(),
+      np: order.np && typeof order.np === 'object'
+        ? { status: String(order.np.status || ''), code: String(order.np.code || ''), reason: String(order.np.reason || ''), received: isDate(order.np.received) ? order.np.received : '', checked: String(order.np.checked || '') }
+        : null,
     };
   }
 
@@ -176,6 +182,80 @@ class Service {
     const urls = (this.data.settings.sheetUrls || []).filter((u) => u.employeeId !== res.employeeId);
     urls.push({ employeeId: res.employeeId, url });
     this.data.settings.sheetUrls = urls;
+    this.store.save();
+    return res;
+  }
+
+  // ---------- Нова Пошта ----------
+  // Трекінг без запису в базу: Map(номер → {status, npStatus, amount, dateCreated, …}).
+  async trackNumbers(numbers) {
+    const list = (Array.isArray(numbers) ? numbers : String(numbers || '').split(/[\s,;]+/)).map((n) => String(n || '').trim()).filter(Boolean);
+    const bad = list.filter((n) => !np.isTtn(n));
+    const good = list.filter((n) => np.isTtn(n));
+    let found = new Map();
+    if (good.length) {
+      try { found = await np.track(good, { apiKey: (this.data.settings.np || {}).apiKey, fetch: this.fetch }); }
+      catch (e) { throw new ApiError(502, e.message); }
+    }
+    return { found, bad };
+  }
+
+  // Підставити дані НП у замовлення. withDate — також дату (дата створення накладної).
+  applyTracking(o, t, { withDate } = {}) {
+    const before = { status: o.status, amount: o.amount, date: o.date };
+    o.status = t.status;
+    if (t.amount != null) o.amount = lib.round2(t.amount);
+    if (!o.product && t.product) o.product = t.product;
+    if (withDate && t.dateCreated) o.date = t.dateCreated;
+    o.np = { status: t.npStatus, code: t.npCode, reason: t.reason, received: t.dateReceived, checked: todayLocal() };
+    return before.status !== o.status || before.amount !== o.amount || before.date !== o.date;
+  }
+
+  // Додати замовлення за номерами ТТН: статус, дата (створення накладної), сума (якщо НП її віддає).
+  // Повтор за «працівник + номер» оновлюється, а не дублюється.
+  async addByTtn({ employee, employeeId, numbers, channel, product } = {}) {
+    const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
+    const { found, bad } = await this.trackNumbers(numbers);
+    const res = { added: 0, updated: 0, notFound: [], skipped: bad, noAmount: [], orders: [] };
+    for (const [number, t] of found) {
+      if (!t.found) { res.notFound.push(number); continue; }
+      let o = this.data.orders.find((x) => x.employeeId === emp.id && x.number === number);
+      if (o) { if (this.applyTracking(o, t)) res.updated++; }
+      else {
+        o = this.normalizeOrder({ employeeId: emp.id, number, product: product || t.product, channel, status: t.status, amount: t.amount || 0, date: t.dateCreated || todayLocal() });
+        o.id = this.store.nextId();
+        this.applyTracking(o, t);
+        this.data.orders.push(o);
+        res.added++;
+      }
+      if (t.amount == null) res.noAmount.push(number);
+      res.orders.push(o);
+    }
+    this.store.save();
+    return res;
+  }
+
+  // Перевірити в НП наявні замовлення: за ids або за фільтрами listOrders. Номери не-ТТН пропускаються.
+  async refreshFromNp({ ids, employee, period, status, q, withDate } = {}) {
+    let orders = Array.isArray(ids) && ids.length
+      ? this.data.orders.filter((o) => ids.map(Number).includes(o.id))
+      : this.listOrders({ employee, period, status, q });
+    const res = { checked: 0, updated: 0, skipped: 0, notFound: [], changes: [] };
+    const withTtn = orders.filter((o) => np.isTtn(o.number));
+    res.skipped = orders.length - withTtn.length;
+    if (!withTtn.length) return res;
+    const { found } = await this.trackNumbers(withTtn.map((o) => o.number));
+    for (const o of withTtn) {
+      const t = found.get(o.number);
+      if (!t) continue;
+      res.checked++;
+      if (!t.found) { res.notFound.push(o.number); }
+      const before = { status: o.status, amount: o.amount, date: o.date };
+      if (this.applyTracking(o, t, { withDate })) {
+        res.updated++;
+        res.changes.push({ id: o.id, number: o.number, from: before, to: { status: o.status, amount: o.amount, date: o.date } });
+      }
+    }
     this.store.save();
     return res;
   }

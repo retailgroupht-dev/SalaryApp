@@ -8,10 +8,22 @@ const { Store } = require('../src/store');
 const { Service } = require('../src/service');
 const { createApi } = require('../src/api');
 
+// Підроблена Нова Пошта: словник номер → документ; усе інше — «Номер не знайдено».
+const NP_DOCS = {
+  20451520852070: { StatusCode: '9', Status: 'Відправлення отримано', DateCreated: '01-09-2026 10:54:36', RecipientDateTime: '03.09.2026 11:40:39', RedeliverySum: '278', CargoDescriptionString: 'щітка' },
+  20451535524936: { StatusCode: '102', Status: 'Відмова від отримання', DateCreated: '14-09-2026 14:36:11', UndeliveryReasonsSubtypeDescription: 'Одержувач не з\'явився до відділення' },
+  20451521500117: { StatusCode: '7', Status: 'Прибув на відділення', DateCreated: '01-11-2026 11:12:06' },
+};
+async function fakeNpFetch(url, init) {
+  const body = JSON.parse(init.body);
+  const data = body.methodProperties.Documents.map((d) => Object.assign({ Number: d.DocumentNumber, StatusCode: '3', Status: 'Номер не знайдено' }, NP_DOCS[d.DocumentNumber] || {}));
+  return { ok: true, json: async () => ({ success: true, data, errors: [] }) };
+}
+
 async function setup(token) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'salary-api-'));
   const store = new Store(dir);
-  const service = new Service(store);
+  const service = new Service(store, { fetch: fakeNpFetch });
   store.data.settings.api.token = token || '';
   const api = createApi(service, { version: '0.0.0-test' });
   const st = await api.apply({ enabled: true, host: '127.0.0.1', port: 0 });
@@ -114,6 +126,51 @@ test('API: імпорт CSV, резервна копія, ставка', async (
     r = await t.call('PUT', '/api/data', backup);
     assert.deepStrictEqual(r.body, { employees: 6, orders: 3 });
     r = await t.call('PUT', '/api/data', { foo: 1 });
+    assert.strictEqual(r.status, 400);
+  } finally { await t.cleanup(); }
+});
+
+test('API: Нова Пошта — додати за ТТН, оновити, подивитися', async () => {
+  const t = await setup();
+  try {
+    let r = await t.call('GET', '/api/track?numbers=20451520852070,PRM-1');
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.body.skipped, ['PRM-1']);
+    assert.deepStrictEqual({ status: r.body.results[0].status, amount: r.body.results[0].amount, dateCreated: r.body.results[0].dateCreated }, { status: 'ok', amount: 278, dateCreated: '2026-09-01' });
+
+    r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: '20451520852070 20451535524936, 20451521500117 20459999999999 PRM-1', channel: 'Rozetka' });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, notFound: r.body.notFound, skipped: r.body.skipped, noAmount: r.body.noAmount },
+      { added: 3, updated: 0, notFound: ['20459999999999'], skipped: ['PRM-1'], noAmount: ['20451535524936', '20451521500117'] });
+    const o = t.service.data.orders.find((x) => x.number === '20451520852070');
+    assert.deepStrictEqual({ status: o.status, amount: o.amount, date: o.date, product: o.product, channel: o.channel, npStatus: o.np.status }, { status: 'ok', amount: 278, date: '2026-09-01', product: 'щітка', channel: 'Rozetka', npStatus: 'Відправлення отримано' });
+    assert.strictEqual(t.service.data.orders.find((x) => x.number === '20451535524936').status, 'refused');
+    r = await t.call('GET', '/api/salary?period=2026-09');
+    assert.strictEqual(r.body.rows.find((x) => x.name === 'Настя').salary, 13.9); // 278 × 5 %
+
+    // повторне додавання не дублює
+    r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: ['20451520852070'] });
+    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated }, { added: 0, updated: 0 });
+    assert.strictEqual(t.service.data.orders.length, 3);
+
+    // замовлення «в дорозі» отримали → refresh змінює статус; дата змінюється лише з withDate
+    const inTransit = t.service.data.orders.find((x) => x.number === '20451521500117');
+    inTransit.date = '2026-11-05';
+    NP_DOCS[20451521500117].StatusCode = '9';
+    r = await t.call('POST', '/api/track/refresh', { status: 'checking' });
+    assert.deepStrictEqual({ checked: r.body.checked, updated: r.body.updated }, { checked: 1, updated: 1 });
+    assert.strictEqual(r.body.changes[0].to.status, 'ok');
+    assert.strictEqual(inTransit.date, '2026-11-05');
+    r = await t.call('POST', '/api/track/refresh', { ids: [inTransit.id], withDate: true });
+    assert.strictEqual(inTransit.date, '2026-11-01');
+
+    // ручна правка через форму (upsert) зберігає блок np
+    r = await t.call('POST', '/api/orders', [Object.assign({}, o, { amount: 300 })]);
+    assert.strictEqual(t.service.data.orders.find((x) => x.id === o.id).np.code, '9');
+
+    r = await t.call('PUT', '/api/settings', { np: { apiKey: ' key1 ' } });
+    assert.strictEqual(r.body.np.apiKey, 'key1');
+    r = await t.call('POST', '/api/track', { employee: 'Хтось', numbers: ['20451520852070'] });
     assert.strictEqual(r.status, 400);
   } finally { await t.cleanup(); }
 });

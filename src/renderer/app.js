@@ -5,7 +5,9 @@ const STATUS = { ok: 'Виконано', refused: 'Відмова', cancelled: '
 const $ = (sel) => document.querySelector(sel);
 let data = { settings: {}, employees: [], orders: [] };
 let info = {};
-const state = { salaryPeriod: null, detailEmployee: null, selected: new Set() };
+const state = { salaryPeriod: null, detailEmployee: null, selected: new Set(), formNp: null };
+// Підпис до статусу: що саме сказала Нова Пошта.
+const npTitle = (o) => (o.np && o.np.status ? `Нова Пошта: ${o.np.status}${o.np.reason ? ` (${o.np.reason})` : ''}${o.np.received ? `, отримано ${o.np.received}` : ''}; перевірено ${o.np.checked || ''}` : '');
 
 const fmt = (n) => (Number(n) || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -73,7 +75,7 @@ function renderSalaryDetail() {
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'} (${orders.length})`;
   box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td><td class="nowrap">${esc(o.number)}</td>
-    <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
+    <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(npTitle(o))}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
     || '<tr><td colspan="6" class="hint">Замовлень немає</td></tr>';
 }
 
@@ -81,6 +83,7 @@ function renderSalaryDetail() {
 function renderOrders() {
   fillEmployeeSelect($('#fEmployee'), true);
   fillEmployeeSelect($('#importEmployee'), false);
+  fillEmployeeSelect($('#ttnEmployee'), false);
   if (!$('#importDate').value) $('#importDate').value = today();
   const fPeriodSel = $('#fPeriod');
   const curPeriod = fPeriodSel.dataset.set ? fPeriodSel.value : '';
@@ -94,7 +97,7 @@ function renderOrders() {
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
     <td><input type="checkbox" class="sel" data-id="${o.id}" ${state.selected.has(o.id) ? 'checked' : ''}></td>
     <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td><td class="nowrap">${esc(o.number)}</td>
-    <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}">${STATUS[o.status] || o.status}</span></td>
+    <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(npTitle(o))}">${STATUS[o.status] || o.status}</span></td>
     <td><button class="small secondary edit" data-id="${o.id}">Змінити</button></td></tr>`).join('')
     || '<tr><td colspan="9" class="hint">Замовлень немає. Імпортуйте таблицю або додайте вручну.</td></tr>';
   $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (усього в базі ${data.orders.length})`;
@@ -110,6 +113,8 @@ function openOrderForm(order) {
   $('#orderFormTitle').textContent = order ? 'Змінити замовлення' : 'Нове замовлення';
   f.id.value = o.id; f.employeeId.value = o.employeeId; f.date.value = o.date; f.product.value = o.product;
   f.number.value = o.number; f.amount.value = o.amount; f.channel.value = o.channel; f.status.value = o.status;
+  state.formNp = o.np || null;
+  $('#orderNpInfo').textContent = npTitle(o);
   $('#modal').classList.remove('hidden');
   f.product.focus();
 }
@@ -140,6 +145,7 @@ function renderSettings() {
   $('#apiHost').value = a.host || '127.0.0.1';
   $('#apiPort').value = a.port || 8765;
   $('#apiToken').value = a.token || '';
+  $('#npApiKey').value = (data.settings.np || {}).apiKey || '';
   renderApiStatus();
 }
 
@@ -262,6 +268,59 @@ function bind() {
     try { afterImport(await window.api.importFile({ employeeId, date: $('#importDate').value, defaultStatus: $('#importDefaultStatus').value })); }
     catch (e) { importStatus('Помилка: ' + (e.message || e), 'err'); }
   });
+  // Нова Пошта
+  const ttnStatus = (msg, cls) => { const el = $('#ttnStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
+  const errMsg = (e) => (e.message || String(e)).replace(/^.*Error: /, '');
+  $('#ttnAddBtn').addEventListener('click', async () => {
+    const employeeId = Number($('#ttnEmployee').value), numbers = $('#ttnNumbers').value.trim();
+    if (!employeeId) return ttnStatus('Спочатку додайте працівника', 'err');
+    if (!numbers) return ttnStatus('Вставте номер ТТН', 'err');
+    ttnStatus('Запитую Нову Пошту…');
+    $('#ttnAddBtn').disabled = true;
+    try {
+      const r = await window.api.npAdd({ employeeId, numbers, channel: $('#ttnChannel').value.trim() });
+      const parts = [`Додано: ${r.added}, оновлено: ${r.updated}.`];
+      if (r.notFound.length) parts.push(`Не знайдено в НП: ${r.notFound.join(', ')}.`);
+      if (r.skipped.length) parts.push(`Не ТТН (пропущено): ${r.skipped.join(', ')}.`);
+      if (r.noAmount.length) parts.push(`Без суми (вкажіть вручну): ${r.noAmount.length}.`);
+      ttnStatus(parts.join(' '), r.added + r.updated ? 'ok' : 'err');
+      if (r.added + r.updated) $('#ttnNumbers').value = '';
+      reload(r.data);
+    } catch (e) { ttnStatus('Помилка: ' + errMsg(e), 'err'); }
+    finally { $('#ttnAddBtn').disabled = false; }
+  });
+  $('#refreshNp').addEventListener('click', async () => {
+    const p = { employee: $('#fEmployee').value || undefined, period: $('#fPeriod').value || undefined, status: $('#fStatus').value || undefined, q: $('#fSearch').value.trim() || undefined, withDate: $('#refreshWithDate').checked };
+    ttnStatus('Перевіряю в Новій Пошті…');
+    $('#refreshNp').disabled = true;
+    try {
+      const r = await window.api.npRefresh(p);
+      const parts = [`Перевірено: ${r.checked}, змінено: ${r.updated}.`];
+      if (r.notFound.length) parts.push(`Не знайдено в НП: ${r.notFound.length}.`);
+      if (r.skipped) parts.push(`Без ТТН (пропущено): ${r.skipped}.`);
+      ttnStatus(parts.join(' '), 'ok');
+      reload(r.data);
+    } catch (e) { ttnStatus('Помилка: ' + errMsg(e), 'err'); }
+    finally { $('#refreshNp').disabled = false; }
+  });
+  $('#orderTrack').addEventListener('click', async () => {
+    const f = $('#orderForm'), number = f.number.value.trim(), info = $('#orderNpInfo');
+    if (!number) { info.textContent = 'Введіть номер ТТН'; return; }
+    info.textContent = 'Запитую Нову Пошту…';
+    try {
+      const r = await window.api.npTrack(number);
+      const t = r.results[0];
+      if (!t) { info.textContent = 'Це не номер ТТН Нової Пошти (має бути 14 цифр)'; return; }
+      if (!t.found) { info.textContent = 'Нова Пошта: номер не знайдено'; return; }
+      f.status.value = t.status;
+      if (t.amount != null) f.amount.value = t.amount;
+      if (!f.product.value && t.product) f.product.value = t.product;
+      if (t.dateCreated && !f.id.value) f.date.value = t.dateCreated;
+      state.formNp = { status: t.npStatus, code: t.npCode, reason: t.reason, received: t.dateReceived, checked: today() };
+      info.textContent = npTitle({ np: state.formNp }) + (t.amount == null ? '. Суму НП не віддала — вкажіть вручну' : '');
+    } catch (e) { info.textContent = 'Помилка: ' + errMsg(e); }
+  });
+
   $('#addOrder').addEventListener('click', () => openOrderForm(null));
   $('#ordersTable tbody').addEventListener('click', (e) => {
     const btn = e.target.closest('button.edit');
@@ -283,7 +342,7 @@ function bind() {
   $('#orderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, amount: f.amount.value, channel: f.channel.value, status: f.status.value };
+    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, amount: f.amount.value, channel: f.channel.value, status: f.status.value, np: state.formNp };
     $('#modal').classList.add('hidden');
     reload(await window.api.saveOrder(o));
   });
@@ -319,6 +378,12 @@ function bind() {
     if (apiCfg.enabled && apiCfg.host !== '127.0.0.1' && apiCfg.host !== 'localhost' && !apiCfg.token && !confirm('API буде доступний з мережі без ключа. Продовжити?')) return;
     try { data.settings = await window.api.saveSettings({ api: apiCfg }); renderSettings(); }
     catch (e) { alert((e.message || String(e)).replace(/^.*Error: /, '')); }
+  });
+  $('#saveNp').addEventListener('click', async () => {
+    try {
+      data.settings = await window.api.saveSettings({ np: { apiKey: $('#npApiKey').value.trim() } });
+      const el = $('#npStatus'); el.textContent = data.settings.np.apiKey ? 'Ключ збережено' : 'Ключ прибрано: трекінг без ключа'; el.className = 'status ok';
+    } catch (e) { alert(errMsg(e)); }
   });
   $('#toggleDocs').addEventListener('click', async () => {
     const box = $('#apiDocs');

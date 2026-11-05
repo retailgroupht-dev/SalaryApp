@@ -40,7 +40,7 @@ ${authNote}
 
 **Працівник** — \`{id, name, ratePercent}\`. \`ratePercent\` порожнє (\`null\`) = загальна ставка з налаштувань.
 
-**Замовлення** — \`{id, employeeId, product, number, amount, channel, status, date}\`:
+**Замовлення** — \`{id, employeeId, product, number, amount, channel, status, date, np}\`:
 
 | Поле | Опис |
 |---|---|
@@ -51,6 +51,7 @@ ${authNote}
 | \`channel\` | \`Rozetka\`, \`Пром 1\`…\`Пром 3\`, \`Епіцентр\` або порожньо |
 | \`status\` | ${statuses}; невідоме значення → \`checking\` |
 | \`date\` | \`YYYY-MM-DD\`; без дати — сьогодні. Період розрахунку береться з дати |
+| \`np\` | що відповіла Нова Пошта: \`{status, code, reason, received, checked}\` або \`null\` (заповнюється трекінгом) |
 
 Зарплата = сума замовлень зі статусом \`ok\` × ставка (%). Інші статуси не рахуються.
 
@@ -107,6 +108,31 @@ curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/orders" -d 
 ]'
 \`\`\`
 
+### Нова Пошта: за номером ТТН
+
+Замовлення можна додавати лише за номером ТТН (14 цифр): статус, дата створення накладної,
+дата отримання й (з ключем відправника) сума післяплати підтягуються з трекінгу Нової Пошти.
+Без ключа Нова Пошта віддає лише статус і дати — тоді \`amount\` буде \`null\`, у замовленні
+сума лишиться 0 (або попередня), і її треба вказати вручну. Для передплачених замовлень суми
+теж немає. Ключ задається у **Налаштування → Нова Пошта** або \`PUT /api/settings\`.
+
+Зіставлення статусів НП: отримано (коди 9, 10, 11, 106) → \`ok\`; відмова, не забрали,
+припинено зберігання (102, 103, 105) → \`refused\`; видалено (2) → \`cancelled\`;
+номер не знайдено (3) → \`nodata\`; усе інше (в дорозі, у відділенні) → \`checking\`.
+
+- \`GET /api/track?numbers=20450000000000,20450000000001\` — лише подивитися, без запису: \`{results: [{number, found, status, npStatus, npCode, reason, amount, dateCreated, dateReceived, product, cityRecipient}], skipped}\`.
+- \`POST /api/track\` з \`{"employee": "Настя", "numbers": ["2045…", "2045…"], "channel": "Rozetka"}\` (\`numbers\` — масив або рядок через пробіл/кому; \`channel\`, \`product\` необов’язкові) — додає замовлення або оновлює наявні з тим самим номером. Відповідь \`{added, updated, notFound, skipped, noAmount, orders}\`.
+- \`POST /api/track/refresh\` з \`{"ids": [1000, 1001]}\` або з фільтрами \`{"employee": "Настя", "period": "2026-11", "status": "checking"}\` (порожнє тіло \`{}\` — усі замовлення) — перевіряє наявні замовлення в НП і оновлює статус, суму й блок \`np\`; \`"withDate": true\` — також замінює дату на дату створення накладної. Номери не-ТТН пропускаються. Відповідь \`{checked, updated, skipped, notFound, changes: [{id, number, from, to}]}\`.
+
+\`\`\`bash
+curl${auth} "${base}/api/track?numbers=20451520852070"
+
+curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track" \\
+  -d '{"employee":"Настя","numbers":["20451520852070","20451521500117"],"channel":"Rozetka"}'
+
+curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track/refresh" -d '{"status":"checking"}'
+\`\`\`
+
 ### Імпорт аркуша
 
 \`POST /api/import\` з одним із варіантів тіла:
@@ -137,7 +163,7 @@ curl${auth} -X PUT -H "Content-Type: application/json" "${base}/api/data" --data
 ### Налаштування
 
 - \`GET /api/settings\` — поточні (ставка, збережені посилання на таблиці, параметри API).
-- \`PUT /api/settings\` з \`{"ratePercent": 5}\` — змінити загальну ставку.
+- \`PUT /api/settings\` з \`{"ratePercent": 5}\` — змінити загальну ставку; з \`{"np": {"apiKey": "…"}}\` — ключ API Нової Пошти (порожній — трекінг без ключа).
 
 ### Документація
 

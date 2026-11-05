@@ -6,11 +6,12 @@ const path = require('path');
 const { DEFAULT_EMPLOYEES } = require('./lib');
 
 function defaultApi() { return { enabled: true, host: '127.0.0.1', port: 8765, token: '' }; }
+function defaultNp() { return { apiKey: '' }; }
 
 function emptyData() {
   return {
     version: 1,
-    settings: { ratePercent: 5, sheetUrls: [], api: defaultApi() },
+    settings: { ratePercent: 5, sheetUrls: [], api: defaultApi(), np: defaultNp() },
     employees: DEFAULT_EMPLOYEES.map((name, i) => ({ id: i + 1, name, ratePercent: null })),
     orders: [],
     nextId: 1000,
@@ -30,6 +31,7 @@ class Store {
       const base = emptyData();
       const settings = Object.assign(base.settings, d.settings || {});
       settings.api = Object.assign(defaultApi(), settings.api || {});
+      settings.np = Object.assign(defaultNp(), settings.np || {});
       return {
         version: 1,
         settings,

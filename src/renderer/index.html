@@ -55,6 +55,21 @@
         </div>
       </header>
       <div class="panel">
+        <h2>За номером ТТН Нової Пошти</h2>
+        <div class="row">
+          <label>Працівник <select id="ttnEmployee"></select></label>
+          <label class="grow">Номери ТТН (кілька — через пробіл, кому або з нового рядка) <textarea id="ttnNumbers" rows="2" placeholder="20450000000000 20450000000001"></textarea></label>
+          <label>Канал <input id="ttnChannel" list="channels" placeholder="необов'язково"></label>
+          <button id="ttnAddBtn">Підтягнути й додати</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="refreshNp" class="secondary">Перевірити показані нижче замовлення в НП</button>
+          <label class="check"><span><input id="refreshWithDate" type="checkbox"> також дату (з дати створення накладної)</span></label>
+        </div>
+        <div id="ttnStatus" class="status"></div>
+        <p class="hint" style="margin-bottom:0">Статус і дата беруться з Нової Пошти автоматично. Суму післяплати Нова Пошта віддає лише з ключем відправника (Налаштування → Нова Пошта); без ключа або для передплачених замовлень суму вкажіть вручну.</p>
+      </div>
+      <div class="panel">
         <h2>Імпорт із Google Таблиці</h2>
         <div class="row">
           <label>Працівник <select id="importEmployee"></select></label>
@@ -107,6 +122,15 @@
         </div>
       </div>
       <div class="panel">
+        <h2>Нова Пошта</h2>
+        <p class="hint">Ключ API відправника (кабінет Нової Пошти → Налаштування → Безпека → Ключі API). Без ключа трекінг теж працює: статус і дати є, але суми післяплати й опису відправлення Нова Пошта не віддає.</p>
+        <div class="row">
+          <label class="grow">Ключ API <input id="npApiKey" placeholder="порожній = трекінг без ключа"></label>
+          <button id="saveNp">Зберегти</button>
+        </div>
+        <div id="npStatus" class="status"></div>
+      </div>
+      <div class="panel">
         <h2>Локальний API</h2>
         <p class="hint">HTTP-доступ до даних для інших програм і скриптів на цьому комп'ютері: замовлення, працівники, розрахунок, файли експорту, резервна копія. Адреса 127.0.0.1 — лише з цього комп'ютера; 0.0.0.0 — також з локальної мережі (тоді обов'язково задайте ключ).</p>
         <div class="row">
@@ -148,7 +172,8 @@
       <label>Працівник <select name="employeeId"></select></label>
       <label>Дата <input name="date" type="date" required></label>
       <label>Товар <input name="product"></label>
-      <label>Номер ТТН / замовлення <input name="number"></label>
+      <label>Номер ТТН / замовлення <span class="inline"><input name="number"><button type="button" id="orderTrack" class="secondary">З Нової Пошти</button></span></label>
+      <div id="orderNpInfo" class="hint" style="margin:0"></div>
       <label>Сума <input name="amount" type="number" step="0.01" min="0" required></label>
       <label>Канал <input name="channel" list="channels"><datalist id="channels"><option>Rozetka</option><option>Пром 1</option><option>Пром 2</option><option>Пром 3</option><option>Епіцентр</option></datalist></label>
       <label>Статус <select name="status"></select></label>
