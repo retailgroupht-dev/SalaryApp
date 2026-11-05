@@ -63,6 +63,7 @@ npm test            # тести логіки
 npm start           # запуск у режимі розробки
 SALARY_DATA_DIR=/tmp/sal SALARY_SMOKE_SHOT=/tmp/sal.png npm start   # знімок вікна без людини
 npm run dist        # збірка інсталятора в dist/ (без публікації)
+npm run pack && open dist/mac-arm64/SalaryApp.app   # зібраний застосунок (у режимі розробки macOS показує назву «Electron»)
 ```
 
 ## Випуск версії й автооновлення
