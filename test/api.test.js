@@ -15,6 +15,12 @@ const NP_DOCS = {
   20451521500117: { StatusCode: '7', Status: 'Прибув на відділення', DateCreated: '01-11-2026 11:12:06' },
 };
 async function fakeNpFetch(url, init) {
+  if (!url.includes('novaposhta')) {
+    // маркетплейси: лише Prom з одним замовленням на ТТН 20451520852070
+    const j = (b) => ({ status: 200, ok: true, text: async () => JSON.stringify(b), json: async () => b });
+    if (url.includes('my.prom.ua')) return j({ orders: new URL(url).searchParams.get('last_id') ? [] : [{ id: 777, date_created: '2026-08-30T10:00:00+00:00', status: 'delivered', status_name: 'Виконано', price: '300 грн', delivery_provider_data: { declaration_number: '20451520852070' }, products: [{ name: 'щітка з Prom' }] }] });
+    return j({ success: true, content: { orders: [], _meta: { pageCount: 1 } }, items: [] });
+  }
   const body = JSON.parse(init.body);
   const data = body.methodProperties.Documents.map((d) => Object.assign({ Number: d.DocumentNumber, StatusCode: '3', Status: 'Номер не знайдено' }, NP_DOCS[d.DocumentNumber] || {}));
   return { ok: true, json: async () => ({ success: true, data, errors: [] }) };
@@ -133,20 +139,25 @@ test('API: імпорт CSV, резервна копія, ставка', async (
 test('API: Нова Пошта — додати за ТТН, оновити, подивитися', async () => {
   const t = await setup();
   try {
+    // без кабінетів — лише Нова Пошта без ключа
     let r = await t.call('GET', '/api/track?numbers=20451520852070,PRM-1');
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual(r.body.skipped, ['PRM-1']);
-    assert.deepStrictEqual({ status: r.body.results[0].status, amount: r.body.results[0].amount, dateCreated: r.body.results[0].dateCreated }, { status: 'ok', amount: 278, dateCreated: '2026-09-01' });
+    assert.deepStrictEqual({ status: r.body.results[0].status, amount: r.body.results[0].amount, date: r.body.results[0].date }, { status: 'ok', amount: 278, date: '2026-09-01' });
+    assert.deepStrictEqual({ number: r.body.results[1].number, found: r.body.results[1].found, status: r.body.results[1].status }, { number: 'PRM-1', found: false, status: 'nodata' });
 
-    r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: '20451520852070 20451535524936, 20451521500117 20459999999999 PRM-1', channel: 'Rozetka' });
+    // з кабінетом Prom — сума, дата, канал і товар з маркетплейсу (пріоритет над НП)
+    r = await t.call('PUT', '/api/settings', { accounts: [{ kind: 'prom', name: 'Пром 1', token: 'p' }, { kind: 'prom', name: 'Пром 1', token: 'p2' }, { kind: 'bad', name: 'x', token: 'y' }] });
+    assert.deepStrictEqual(r.body.accounts.map((a) => a.name), ['Пром 1', 'Пром 1 (2)']);
+    r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: '20451520852070 20451535524936, 20451521500117 20459999999999' });
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, notFound: r.body.notFound, skipped: r.body.skipped, noAmount: r.body.noAmount },
-      { added: 3, updated: 0, notFound: ['20459999999999'], skipped: ['PRM-1'], noAmount: ['20451535524936', '20451521500117'] });
+    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, notFound: r.body.notFound, noAmount: r.body.noAmount, errors: r.body.errors },
+      { added: 3, updated: 0, notFound: ['20459999999999'], noAmount: ['20451535524936', '20451521500117'], errors: [] });
     const o = t.service.data.orders.find((x) => x.number === '20451520852070');
-    assert.deepStrictEqual({ status: o.status, amount: o.amount, date: o.date, product: o.product, channel: o.channel, npStatus: o.np.status }, { status: 'ok', amount: 278, date: '2026-09-01', product: 'щітка', channel: 'Rozetka', npStatus: 'Відправлення отримано' });
+    assert.deepStrictEqual({ status: o.status, amount: o.amount, date: o.date, product: o.product, channel: o.channel, np: o.track.np.status, mp: o.track.mp.channel },
+      { status: 'ok', amount: 300, date: '2026-08-30', product: 'щітка з Prom', channel: 'Пром 1', np: 'Відправлення отримано', mp: 'Пром 1' });
     assert.strictEqual(t.service.data.orders.find((x) => x.number === '20451535524936').status, 'refused');
-    r = await t.call('GET', '/api/salary?period=2026-09');
-    assert.strictEqual(r.body.rows.find((x) => x.name === 'Настя').salary, 13.9); // 278 × 5 %
+    r = await t.call('GET', '/api/salary?period=2026-08');
+    assert.strictEqual(r.body.rows.find((x) => x.name === 'Настя').salary, 15); // 300 × 5 %
 
     // повторне додавання не дублює
     r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: ['20451520852070'] });
@@ -164,12 +175,18 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     r = await t.call('POST', '/api/track/refresh', { ids: [inTransit.id], withDate: true });
     assert.strictEqual(inTransit.date, '2026-11-01');
 
-    // ручна правка через форму (upsert) зберігає блок np
-    r = await t.call('POST', '/api/orders', [Object.assign({}, o, { amount: 300 })]);
-    assert.strictEqual(t.service.data.orders.find((x) => x.id === o.id).np.code, '9');
+    // ручна правка через форму (upsert) зберігає блок track
+    r = await t.call('POST', '/api/orders', [Object.assign({}, o, { amount: 350 })]);
+    assert.strictEqual(t.service.data.orders.find((x) => x.id === o.id).track.np.code, '9');
 
-    r = await t.call('PUT', '/api/settings', { np: { apiKey: ' key1 ' } });
-    assert.strictEqual(r.body.np.apiKey, 'key1');
+    // імпорт ключів зі скрипта й перевірка кабінетів
+    r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];" });
+    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added }, { parsed: 1, added: 1 });
+    r = await t.call('POST', '/api/settings/accounts/import', { script: 'nothing' });
+    assert.strictEqual(r.status, 400);
+    r = await t.call('GET', '/api/settings/accounts/test');
+    assert.strictEqual(r.body.length, 3);
+    assert.ok(r.body.every((x) => x.ok), JSON.stringify(r.body));
     r = await t.call('POST', '/api/track', { employee: 'Хтось', numbers: ['20451520852070'] });
     assert.strictEqual(r.status, 400);
   } finally { await t.cleanup(); }

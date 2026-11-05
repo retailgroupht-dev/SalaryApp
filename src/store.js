@@ -6,12 +6,13 @@ const path = require('path');
 const { DEFAULT_EMPLOYEES } = require('./lib');
 
 function defaultApi() { return { enabled: true, host: '127.0.0.1', port: 8765, token: '' }; }
-function defaultNp() { return { apiKey: '' }; }
+// Кабінети: [{kind: np|prom|rozetka|epicentr, name, token}].
+function defaultAccounts() { return []; }
 
 function emptyData() {
   return {
     version: 1,
-    settings: { ratePercent: 5, sheetUrls: [], api: defaultApi(), np: defaultNp() },
+    settings: { ratePercent: 5, sheetUrls: [], api: defaultApi(), accounts: defaultAccounts() },
     employees: DEFAULT_EMPLOYEES.map((name, i) => ({ id: i + 1, name, ratePercent: null })),
     orders: [],
     nextId: 1000,
@@ -31,7 +32,10 @@ class Store {
       const base = emptyData();
       const settings = Object.assign(base.settings, d.settings || {});
       settings.api = Object.assign(defaultApi(), settings.api || {});
-      settings.np = Object.assign(defaultNp(), settings.np || {});
+      settings.accounts = Array.isArray(settings.accounts) ? settings.accounts : defaultAccounts();
+      // Старе поле settings.np.apiKey → перший кабінет Нової Пошти.
+      if (settings.np && settings.np.apiKey && !settings.accounts.some((a) => a.kind === 'np')) settings.accounts.push({ kind: 'np', name: 'НП 1', token: String(settings.np.apiKey) });
+      delete settings.np;
       return {
         version: 1,
         settings,

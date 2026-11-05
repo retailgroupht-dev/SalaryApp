@@ -96,7 +96,9 @@ function registerIpc() {
   ipcMain.handle('orders:save', (_e, order) => { service.upsertOrder(order); return service.data; });
   ipcMain.handle('orders:delete', (_e, ids) => { service.deleteOrders(ids); return service.data; });
 
-  ipcMain.handle('np:track', (_e, numbers) => service.trackNumbers(numbers).then((r) => ({ results: [...r.found.values()], skipped: r.bad })));
+  ipcMain.handle('np:track', (_e, numbers) => service.trackNumbers(numbers).then((r) => ({ results: [...r.results.values()], errors: r.errors })));
+  ipcMain.handle('accounts:import', (_e, text) => Object.assign(service.importAccountsFromScript(text), { settings: service.data.settings }));
+  ipcMain.handle('accounts:test', () => service.testAccounts());
   ipcMain.handle('np:add', async (_e, p) => Object.assign(await service.addByTtn(p), { data: service.data }));
   ipcMain.handle('np:refresh', async (_e, p) => Object.assign(await service.refreshFromNp(p), { data: service.data }));
 

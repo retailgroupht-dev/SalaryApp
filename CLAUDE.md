@@ -6,18 +6,26 @@
 
 Зарплата = сума замовлень зі статусом «Виконано» × ставка (за замовчуванням 5 %, є
 індивідуальна ставка на працівника). Відмови, скасування, «немає даних» не рахуються.
-Період — місяць за полем «дата» замовлення: при додаванні за ТТН — дата створення накладної
-в Новій Пошті, при імпорті з таблиці — день імпорту (кнопка «також дату» в перевірці НП замінює).
+Період — місяць за полем «дата» замовлення: при додаванні за номером — дата продажу з маркетплейсу
+(інакше дата накладної НП), при імпорті з таблиці — день імпорту (прапорець «також дату» в перевірці замінює).
 
 ## Файли
 
 - `src/lib.js` — чиста логіка: CSV, зіставлення рядків аркуша «Лист2» (B товар, C номер,
   D сума/ОТКАЗ/ОТМЕНА/НЕТ ДАННЫХ, Q/R/S канал, T статус) і аркуша «номер + сума»,
   злиття за номером, розрахунок, запис XLSX (власний zip без бібліотек). Тести — `test/`.
-- `src/np.js` — трекінг Нової Пошти (`TrackingDocument/getStatusDocuments`, пакети по 100):
-  за ТТН (14 цифр) статус, дати створення/отримання, з ключем відправника — сума післяплати.
-  Коди НП → статуси: 9/10/11/106 ok, 102/103/105 refused, 2 cancelled, 3 nodata, решта checking.
-  Без ключа суми немає (`amount: null`) — її вводять вручну. Ключ — `settings.np.apiKey`.
+- `src/np.js` — трекінг Нової Пошти (`TrackingDocument/getStatusDocuments`, пакети по 100,
+  кілька ключів — береться найінформативніша відповідь): статус, дати, з ключем відправника — сума.
+  Коди НП → статуси: 9/10/11 ok, 102/103/105/106/108 refused, 2 cancelled, 3 nodata, решта checking.
+- `src/marketplaces.js` — Prom (`orders/list`, date_from), Rozetka (`orders/search`, `?ttn=`,
+  pageSize=100), Епіцентр (`v4/oms/orders`, курсор), Rozetka Delivery (PRM-…, публічний трекінг);
+  пошук замовлення за номером у порядку Rozetka → Prom → Епіцентр; `parseScriptAccounts` —
+  ключі з Apps Script таблиць. Перенесено зі скрипта «Проверка заказов» (файли `nastya.txt`,
+  `tovkes.txt` у теці — з ключами, у `.gitignore`).
+- `src/lookup.js` — зведення джерел за правилами скрипта: сума з маркетплейсу (інакше НП),
+  проблема ОТКАЗ > ВОЗВРАТ > ОТМЕНА з будь-якого джерела, перевізник перебиває маркетплейс,
+  ніде немає → nodata, НП ще не видала → checking (у таблиці такі рядки вже «ОК» — свідома відмінність).
+  Кабінети — `settings.accounts: [{kind: np|prom|rozetka|epicentr, name, token}]`, назва = канал.
 - `src/store.js` — усі дані в одному `data.json` у теці користувача
   (Win `%APPDATA%\Розрахунок зарплат\`, Mac `~/Library/Application Support/Розрахунок зарплат/`).
 - `src/service.js` — уся робота з даними (працівники, замовлення, імпорт, розрахунок, експорт,
@@ -36,8 +44,9 @@
 `DELETE /api/employees/:id`, `GET /api/orders?employee=&period=&status=&q=`,
 `POST /api/orders` (об’єкт або масив; без `id` — злиття за «працівник + номер»),
 `DELETE /api/orders/:id`, `POST /api/import` (`{employee, url}` або `{employee, csv}`),
-`GET /api/track?numbers=` (подивитися), `POST /api/track` (`{employee, numbers}` — додати за ТТН),
-`POST /api/track/refresh` (`{ids}` або фільтри, `withDate`) — перевірити наявні в НП,
+`GET /api/track?numbers=` (подивитися), `POST /api/track` (`{employee, numbers}` — додати за номером),
+`POST /api/track/refresh` (`{ids}` або фільтри, `withDate`) — перевірити наявні,
+`POST /api/settings/accounts/import` (`{script}`), `GET /api/settings/accounts/test`,
 `GET /api/export?format=xlsx|csv&period=`, `GET|PUT /api/data` (резервна копія),
 `GET|PUT /api/settings`, `GET /api/docs`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.
 

@@ -17,14 +17,16 @@ const ROUTES_DOC = [
   ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?}; без id — злиття за номером'],
   ['DELETE', '/api/orders/:id', 'видалити замовлення'],
   ['POST', '/api/import', '{employee, url} або {employee, csv, date?, defaultStatus?} — імпорт аркуша'],
-  ['GET', '/api/track?numbers=a,b', 'трекінг ТТН у Новій Пошті без запису в базу'],
-  ['POST', '/api/track', '{employee, numbers: [...] | "…", channel?} — додати/оновити замовлення за ТТН'],
-  ['POST', '/api/track/refresh', '{ids?} або {employee?, period?, status?, q?}, withDate? — перевірити наявні замовлення в НП'],
+  ['GET', '/api/track?numbers=a,b', 'пошук за номерами (НП + маркетплейси) без запису в базу'],
+  ['POST', '/api/track', '{employee, numbers: [...] | "…", channel?} — додати/оновити замовлення за номерами'],
+  ['POST', '/api/track/refresh', '{ids?} або {employee?, period?, status?, q?}, withDate? — перевірити наявні замовлення'],
   ['GET', '/api/export?format=xlsx|csv&period=', 'файл розрахунку'],
   ['GET', '/api/data', 'уся база (резервна копія JSON)'],
   ['PUT', '/api/data', 'замінити базу даними з резервної копії'],
   ['GET', '/api/settings', 'налаштування'],
-  ['PUT', '/api/settings', '{ratePercent?, np: {apiKey}?} — ставка, ключ Нової Пошти'],
+  ['PUT', '/api/settings', '{ratePercent?, accounts?: [{kind, name, token}]} — ставка, кабінети'],
+  ['POST', '/api/settings/accounts/import', '{script} — ключі з тексту Apps Script таблиці'],
+  ['GET', '/api/settings/accounts/test', 'перевірити всі кабінети'],
   ['GET', '/api/docs', 'ця документація у Markdown (?download=1 — як файл)'],
 ];
 
@@ -89,8 +91,8 @@ function createApi(service, appInfo) {
       if (m === 'POST' && p === '/api/orders') { const b = json(); return send(res, 200, service.mergeOrders(Array.isArray(b) ? b : [b])); }
       if (m === 'DELETE' && (mm = /^\/api\/orders\/(\d+)$/.exec(p))) return send(res, 200, service.deleteOrders([mm[1]]));
       if (m === 'GET' && p === '/api/track') {
-        const { found, bad } = await service.trackNumbers(q.numbers || q.number || '');
-        return send(res, 200, { results: [...found.values()], skipped: bad });
+        const { results, errors } = await service.trackNumbers(q.numbers || q.number || '');
+        return send(res, 200, { results: [...results.values()], errors });
       }
       if (m === 'POST' && p === '/api/track') return send(res, 200, await service.addByTtn(json()));
       if (m === 'POST' && p === '/api/track/refresh') return send(res, 200, await service.refreshFromNp(json()));
@@ -113,7 +115,9 @@ function createApi(service, appInfo) {
         return send(res, 200, Buffer.from(md, 'utf8'), h);
       }
       if (m === 'GET' && p === '/api/settings') return send(res, 200, service.data.settings);
-      if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, np: b.np })); }
+      if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, accounts: b.accounts })); }
+      if (m === 'POST' && p === '/api/settings/accounts/import') return send(res, 200, service.importAccountsFromScript((json() || {}).script));
+      if (m === 'GET' && p === '/api/settings/accounts/test') return send(res, 200, await service.testAccounts());
       return send(res, 404, { error: 'Невідомий маршрут', routes: ROUTES_DOC });
     } catch (e) {
       const status = e instanceof ApiError ? e.status : 500;

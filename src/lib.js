@@ -72,7 +72,7 @@ function statusFromText(t, d) {
   const s = (t || '').trim();
   const dd = (d || '').trim().toUpperCase();
   if (/^ОК/i.test(s)) return 'ok';
-  if (/ОТКАЗ|ВІДМОВ/i.test(s) || dd === 'ОТКАЗ') return 'refused';
+  if (/ОТКАЗ|ВІДМОВ|ВОЗВРАТ|ПОВЕРН/i.test(s) || dd === 'ОТКАЗ' || dd === 'ВОЗВРАТ') return 'refused';
   if (/ОТМЕНА|СКАСОВ/i.test(s) || dd === 'ОТМЕНА') return 'cancelled';
   if (/не найден|не знайден/i.test(s) || dd === 'НЕТ ДАННЫХ') return 'nodata';
   return 'checking';

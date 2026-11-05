@@ -55,19 +55,18 @@
         </div>
       </header>
       <div class="panel">
-        <h2>За номером ТТН Нової Пошти</h2>
+        <h2>За номером ТТН або замовлення</h2>
         <div class="row">
           <label>Працівник <select id="ttnEmployee"></select></label>
-          <label class="grow">Номери ТТН (кілька — через пробіл, кому або з нового рядка) <textarea id="ttnNumbers" rows="2" placeholder="20450000000000 20450000000001"></textarea></label>
-          <label>Канал <input id="ttnChannel" list="channels" placeholder="необов'язково"></label>
+          <label class="grow">Номери (ТТН, PRM-…, номер замовлення; кілька — через пробіл, кому або з нового рядка) <textarea id="ttnNumbers" rows="2" placeholder="20450000000000 PRM-700000000"></textarea></label>
           <button id="ttnAddBtn">Підтягнути й додати</button>
         </div>
         <div class="row" style="margin-top:8px">
-          <button id="refreshNp" class="secondary">Перевірити показані нижче замовлення в НП</button>
-          <label class="check"><span><input id="refreshWithDate" type="checkbox"> також дату (з дати створення накладної)</span></label>
+          <button id="refreshNp" class="secondary">Перевірити показані нижче замовлення</button>
+          <label class="check"><span><input id="refreshWithDate" type="checkbox"> також дату (дата замовлення на маркетплейсі або накладної)</span></label>
         </div>
         <div id="ttnStatus" class="status"></div>
-        <p class="hint" style="margin-bottom:0">Статус і дата беруться з Нової Пошти автоматично. Суму післяплати Нова Пошта віддає лише з ключем відправника (Налаштування → Нова Пошта); без ключа або для передплачених замовлень суму вкажіть вручну.</p>
+        <p class="hint" style="margin-bottom:0">Статус, сума, дата продажу, канал і товар підтягуються з Нової Пошти та кабінетів Prom / Rozetka / Епіцентр (Налаштування → Кабінети), за тими ж правилами, що й скрипт у таблицях. Якщо замовлення є лише в Новій Пошті без ключа відправника, суми не буде — вкажіть вручну.</p>
       </div>
       <div class="panel">
         <h2>Імпорт із Google Таблиці</h2>
@@ -122,13 +121,25 @@
         </div>
       </div>
       <div class="panel">
-        <h2>Нова Пошта</h2>
-        <p class="hint">Ключ API відправника (кабінет Нової Пошти → Налаштування → Безпека → Ключі API). Без ключа трекінг теж працює: статус і дати є, але суми післяплати й опису відправлення Нова Пошта не віддає.</p>
-        <div class="row">
-          <label class="grow">Ключ API <input id="npApiKey" placeholder="порожній = трекінг без ключа"></label>
-          <button id="saveNp">Зберегти</button>
+        <h2>Кабінети: Нова Пошта і маркетплейси</h2>
+        <p class="hint">Ключі API кабінетів, у яких застосунок шукає замовлення за номером: звідти беруться статус, сума, дата продажу й канал (назва кабінету). Нова Пошта без ключа віддає лише статус і дати. Найпростіше — вставити код Apps Script з таблиці (Розширення → Apps Script): ключі з нього підхопляться самі.</p>
+        <table id="accountsTable" class="grid">
+          <thead><tr><th>Канал</th><th>Назва (так підписується канал замовлення)</th><th>Ключ</th><th>Перевірка</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="row" style="margin-top:10px">
+          <label>Канал <select id="accKind"><option value="np">Нова Пошта</option><option value="prom">Prom.ua</option><option value="rozetka">Rozetka</option><option value="epicentr">Епіцентр</option></select></label>
+          <label>Назва <input id="accName" placeholder="Пром 2"></label>
+          <label class="grow">Ключ / токен <input id="accToken"></label>
+          <button id="accAdd" class="secondary">Додати</button>
+          <button id="accTest" class="secondary">Перевірити всі</button>
+          <button id="accImportToggle" class="secondary">Імпорт зі скрипта таблиці…</button>
         </div>
-        <div id="npStatus" class="status"></div>
+        <div id="accImport" class="hidden" style="margin-top:10px">
+          <textarea id="accScript" rows="4" style="width:100%" placeholder="Вставте сюди весь код Apps Script таблиці (Розширення → Apps Script → Ctrl+A, Ctrl+C)"></textarea>
+          <div class="row" style="margin-top:6px"><button id="accImportBtn">Імпортувати ключі</button></div>
+        </div>
+        <div id="accStatus" class="status"></div>
       </div>
       <div class="panel">
         <h2>Локальний API</h2>

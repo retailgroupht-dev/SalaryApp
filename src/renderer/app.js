@@ -6,8 +6,9 @@ const $ = (sel) => document.querySelector(sel);
 let data = { settings: {}, employees: [], orders: [] };
 let info = {};
 const state = { salaryPeriod: null, detailEmployee: null, selected: new Set(), formNp: null };
-// Підпис до статусу: що саме сказала Нова Пошта.
-const npTitle = (o) => (o.np && o.np.status ? `Нова Пошта: ${o.np.status}${o.np.reason ? ` (${o.np.reason})` : ''}${o.np.received ? `, отримано ${o.np.received}` : ''}; перевірено ${o.np.checked || ''}` : '');
+// Підпис до статусу: що сказали джерела (Нова Пошта, маркетплейс, Rozetka Delivery).
+const trackTitle = (o) => (o.track && o.track.note ? `${o.track.note}. Перевірено ${o.track.checked || ''}` : '');
+const KIND_NAMES = { np: 'Нова Пошта', prom: 'Prom.ua', rozetka: 'Rozetka', epicentr: 'Епіцентр' };
 
 const fmt = (n) => (Number(n) || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -75,7 +76,7 @@ function renderSalaryDetail() {
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'} (${orders.length})`;
   box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td><td class="nowrap">${esc(o.number)}</td>
-    <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(npTitle(o))}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
+    <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
     || '<tr><td colspan="6" class="hint">Замовлень немає</td></tr>';
 }
 
@@ -97,7 +98,7 @@ function renderOrders() {
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
     <td><input type="checkbox" class="sel" data-id="${o.id}" ${state.selected.has(o.id) ? 'checked' : ''}></td>
     <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td><td class="nowrap">${esc(o.number)}</td>
-    <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(npTitle(o))}">${STATUS[o.status] || o.status}</span></td>
+    <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td>
     <td><button class="small secondary edit" data-id="${o.id}">Змінити</button></td></tr>`).join('')
     || '<tr><td colspan="9" class="hint">Замовлень немає. Імпортуйте таблицю або додайте вручну.</td></tr>';
   $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (усього в базі ${data.orders.length})`;
@@ -113,8 +114,8 @@ function openOrderForm(order) {
   $('#orderFormTitle').textContent = order ? 'Змінити замовлення' : 'Нове замовлення';
   f.id.value = o.id; f.employeeId.value = o.employeeId; f.date.value = o.date; f.product.value = o.product;
   f.number.value = o.number; f.amount.value = o.amount; f.channel.value = o.channel; f.status.value = o.status;
-  state.formNp = o.np || null;
-  $('#orderNpInfo').textContent = npTitle(o);
+  state.formNp = o.track || null;
+  $('#orderNpInfo').textContent = trackTitle(o);
   $('#modal').classList.remove('hidden');
   f.product.focus();
 }
@@ -145,8 +146,17 @@ function renderSettings() {
   $('#apiHost').value = a.host || '127.0.0.1';
   $('#apiPort').value = a.port || 8765;
   $('#apiToken').value = a.token || '';
-  $('#npApiKey').value = (data.settings.np || {}).apiKey || '';
+  renderAccounts();
   renderApiStatus();
+}
+
+function renderAccounts(tests) {
+  const list = data.settings.accounts || [];
+  $('#accountsTable tbody').innerHTML = list.map((a, i) => {
+    const t = tests && tests[i];
+    return `<tr data-i="${i}"><td>${KIND_NAMES[a.kind] || a.kind}</td><td>${esc(a.name)}</td><td class="nowrap" title="${esc(a.token)}">…${esc(a.token.slice(-6))}</td>
+    <td class="${t ? (t.ok ? 'ok' : 'err') : ''}">${t ? esc(t.message) : ''}</td><td><button class="small danger secondary acc-del" data-i="${i}">Видалити</button></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="hint">Кабінетів немає. Додайте ключ або імпортуйте зі скрипта таблиці.</td></tr>';
 }
 
 async function renderApiStatus() {
@@ -275,14 +285,14 @@ function bind() {
     const employeeId = Number($('#ttnEmployee').value), numbers = $('#ttnNumbers').value.trim();
     if (!employeeId) return ttnStatus('Спочатку додайте працівника', 'err');
     if (!numbers) return ttnStatus('Вставте номер ТТН', 'err');
-    ttnStatus('Запитую Нову Пошту…');
+    ttnStatus('Шукаю в Новій Пошті та на маркетплейсах…');
     $('#ttnAddBtn').disabled = true;
     try {
-      const r = await window.api.npAdd({ employeeId, numbers, channel: $('#ttnChannel').value.trim() });
+      const r = await window.api.npAdd({ employeeId, numbers });
       const parts = [`Додано: ${r.added}, оновлено: ${r.updated}.`];
-      if (r.notFound.length) parts.push(`Не знайдено в НП: ${r.notFound.join(', ')}.`);
-      if (r.skipped.length) parts.push(`Не ТТН (пропущено): ${r.skipped.join(', ')}.`);
+      if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
       if (r.noAmount.length) parts.push(`Без суми (вкажіть вручну): ${r.noAmount.length}.`);
+      if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
       ttnStatus(parts.join(' '), r.added + r.updated ? 'ok' : 'err');
       if (r.added + r.updated) $('#ttnNumbers').value = '';
       reload(r.data);
@@ -291,13 +301,14 @@ function bind() {
   });
   $('#refreshNp').addEventListener('click', async () => {
     const p = { employee: $('#fEmployee').value || undefined, period: $('#fPeriod').value || undefined, status: $('#fStatus').value || undefined, q: $('#fSearch').value.trim() || undefined, withDate: $('#refreshWithDate').checked };
-    ttnStatus('Перевіряю в Новій Пошті…');
+    ttnStatus('Перевіряю в Новій Пошті та на маркетплейсах…');
     $('#refreshNp').disabled = true;
     try {
       const r = await window.api.npRefresh(p);
       const parts = [`Перевірено: ${r.checked}, змінено: ${r.updated}.`];
-      if (r.notFound.length) parts.push(`Не знайдено в НП: ${r.notFound.length}.`);
-      if (r.skipped) parts.push(`Без ТТН (пропущено): ${r.skipped}.`);
+      if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.length}.`);
+      if (r.skipped) parts.push(`Без номера (пропущено): ${r.skipped}.`);
+      if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
       ttnStatus(parts.join(' '), 'ok');
       reload(r.data);
     } catch (e) { ttnStatus('Помилка: ' + errMsg(e), 'err'); }
@@ -306,18 +317,18 @@ function bind() {
   $('#orderTrack').addEventListener('click', async () => {
     const f = $('#orderForm'), number = f.number.value.trim(), info = $('#orderNpInfo');
     if (!number) { info.textContent = 'Введіть номер ТТН'; return; }
-    info.textContent = 'Запитую Нову Пошту…';
+    info.textContent = 'Шукаю…';
     try {
       const r = await window.api.npTrack(number);
       const t = r.results[0];
-      if (!t) { info.textContent = 'Це не номер ТТН Нової Пошти (має бути 14 цифр)'; return; }
-      if (!t.found) { info.textContent = 'Нова Пошта: номер не знайдено'; return; }
+      if (!t || !t.found) { info.textContent = 'Не знайдено ні в Новій Пошті, ні на маркетплейсах' + (r.errors.length ? ` (${r.errors.join('; ')})` : ''); return; }
       f.status.value = t.status;
       if (t.amount != null) f.amount.value = t.amount;
+      if (t.channel) f.channel.value = t.channel;
       if (!f.product.value && t.product) f.product.value = t.product;
-      if (t.dateCreated && !f.id.value) f.date.value = t.dateCreated;
-      state.formNp = { status: t.npStatus, code: t.npCode, reason: t.reason, received: t.dateReceived, checked: today() };
-      info.textContent = npTitle({ np: state.formNp }) + (t.amount == null ? '. Суму НП не віддала — вкажіть вручну' : '');
+      if (t.date && !f.id.value) f.date.value = t.date;
+      state.formNp = { checked: today(), note: t.note, problem: t.problem, np: t.np, mp: t.mp, rd: t.rd };
+      info.textContent = t.note + (t.amount == null ? '. Суми немає — вкажіть вручну' : '');
     } catch (e) { info.textContent = 'Помилка: ' + errMsg(e); }
   });
 
@@ -342,7 +353,7 @@ function bind() {
   $('#orderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, amount: f.amount.value, channel: f.channel.value, status: f.status.value, np: state.formNp };
+    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, amount: f.amount.value, channel: f.channel.value, status: f.status.value, track: state.formNp };
     $('#modal').classList.add('hidden');
     reload(await window.api.saveOrder(o));
   });
@@ -379,11 +390,35 @@ function bind() {
     try { data.settings = await window.api.saveSettings({ api: apiCfg }); renderSettings(); }
     catch (e) { alert((e.message || String(e)).replace(/^.*Error: /, '')); }
   });
-  $('#saveNp').addEventListener('click', async () => {
+  const accStatus = (msg, cls) => { const el = $('#accStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
+  const saveAccounts = async (list) => { try { data.settings = await window.api.saveSettings({ accounts: list }); renderAccounts(); } catch (e) { accStatus('Помилка: ' + errMsg(e), 'err'); } };
+  $('#accAdd').addEventListener('click', async () => {
+    const token = $('#accToken').value.trim();
+    if (!token) return accStatus('Вставте ключ', 'err');
+    await saveAccounts([...(data.settings.accounts || []), { kind: $('#accKind').value, name: $('#accName').value.trim(), token }]);
+    $('#accToken').value = ''; $('#accName').value = '';
+    accStatus('Кабінет додано', 'ok');
+  });
+  $('#accountsTable tbody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button.acc-del'); if (!btn) return;
+    const list = (data.settings.accounts || []).slice(); const a = list[Number(btn.dataset.i)];
+    if (!confirm(`Видалити кабінет «${a.name}»?`)) return;
+    list.splice(Number(btn.dataset.i), 1);
+    await saveAccounts(list);
+  });
+  $('#accTest').addEventListener('click', async () => {
+    accStatus('Перевіряю кабінети…'); $('#accTest').disabled = true;
+    try { const r = await window.api.accountsTest(); renderAccounts(r); accStatus(`Перевірено: ${r.length}, помилок: ${r.filter((x) => !x.ok).length}`, r.every((x) => x.ok) ? 'ok' : 'err'); }
+    catch (e) { accStatus('Помилка: ' + errMsg(e), 'err'); }
+    finally { $('#accTest').disabled = false; }
+  });
+  $('#accImportToggle').addEventListener('click', () => $('#accImport').classList.toggle('hidden'));
+  $('#accImportBtn').addEventListener('click', async () => {
     try {
-      data.settings = await window.api.saveSettings({ np: { apiKey: $('#npApiKey').value.trim() } });
-      const el = $('#npStatus'); el.textContent = data.settings.np.apiKey ? 'Ключ збережено' : 'Ключ прибрано: трекінг без ключа'; el.className = 'status ok';
-    } catch (e) { alert(errMsg(e)); }
+      const r = await window.api.accountsImport($('#accScript').value);
+      data.settings = r.settings; renderAccounts(); $('#accScript').value = ''; $('#accImport').classList.add('hidden');
+      accStatus(`Знайдено ключів у скрипті: ${r.parsed}, додано нових: ${r.added}`, 'ok');
+    } catch (e) { accStatus('Помилка: ' + errMsg(e), 'err'); }
   });
   $('#toggleDocs').addEventListener('click', async () => {
     const box = $('#apiDocs');

@@ -2,6 +2,8 @@
 // Спільна логіка роботи з даними: нею користуються і вікно (IPC у main.js), і HTTP API (api.js).
 const lib = require('./lib');
 const np = require('./np');
+const mp = require('./marketplaces');
+const { lookup } = require('./lookup');
 
 function todayLocal() {
   const d = new Date();
@@ -45,7 +47,7 @@ class Service {
       a.token = String(a.token || '').trim();
       s.api = a;
     }
-    if (patch.np) s.np = { apiKey: String(patch.np.apiKey || '').trim() };
+    if (patch.accounts) s.accounts = this.cleanAccounts(patch.accounts);
     this.store.save();
     return s;
   }
@@ -112,8 +114,9 @@ class Service {
       channel: String(order.channel || '').trim(),
       status: lib.STATUS[order.status] ? order.status : 'checking',
       date: isDate(order.date) ? order.date : todayLocal(),
-      np: order.np && typeof order.np === 'object'
-        ? { status: String(order.np.status || ''), code: String(order.np.code || ''), reason: String(order.np.reason || ''), received: isDate(order.np.received) ? order.np.received : '', checked: String(order.np.checked || '') }
+      track: order.track && typeof order.track === 'object'
+        ? { checked: String(order.track.checked || ''), note: String(order.track.note || ''), problem: String(order.track.problem || ''),
+          np: order.track.np || null, mp: order.track.mp || null, rd: order.track.rd || null }
         : null,
     };
   }
@@ -186,74 +189,115 @@ class Service {
     return res;
   }
 
-  // ---------- Нова Пошта ----------
-  // Трекінг без запису в базу: Map(номер → {status, npStatus, amount, dateCreated, …}).
-  async trackNumbers(numbers) {
-    const list = (Array.isArray(numbers) ? numbers : String(numbers || '').split(/[\s,;]+/)).map((n) => String(n || '').trim()).filter(Boolean);
-    const bad = list.filter((n) => !np.isTtn(n));
-    const good = list.filter((n) => np.isTtn(n));
-    let found = new Map();
-    if (good.length) {
-      try { found = await np.track(good, { apiKey: (this.data.settings.np || {}).apiKey, fetch: this.fetch }); }
-      catch (e) { throw new ApiError(502, e.message); }
+  // ---------- кабінети (ключі) ----------
+  cleanAccounts(list) {
+    const out = [];
+    const seen = new Set();
+    for (const a of Array.isArray(list) ? list : []) {
+      const kind = String(a.kind || '').trim();
+      const token = String(a.token || a.key || '').trim();
+      if (!mp.KINDS[kind] || !token || seen.has(kind + '|' + token)) continue;
+      seen.add(kind + '|' + token);
+      const base = String(a.name || '').trim() || mp.KINDS[kind];
+      let name = base, i = 2;
+      while (out.some((x) => x.name.toLowerCase() === name.toLowerCase())) name = `${base} (${i++})`;
+      out.push({ kind, name, token });
     }
-    return { found, bad };
+    return out;
   }
 
-  // Підставити дані НП у замовлення. withDate — також дату (дата створення накладної).
+  // Ключі з тексту Apps Script таблиць (NOVA_POSHTA_ACCOUNTS, PROM_ACCOUNTS, …) — додаються до наявних.
+  importAccountsFromScript(text) {
+    const parsed = mp.parseScriptAccounts(text);
+    if (!parsed.length) throw new ApiError(400, 'У тексті не знайдено жодного ключа (очікую масиви NOVA_POSHTA_ACCOUNTS, PROM_ACCOUNTS, EPICENTER_ACCOUNTS, ROZETKA_ACCOUNTS)');
+    const before = this.data.settings.accounts.length;
+    this.data.settings.accounts = this.cleanAccounts([...this.data.settings.accounts, ...parsed]);
+    this.store.save();
+    return { parsed: parsed.length, added: this.data.settings.accounts.length - before, accounts: this.data.settings.accounts };
+  }
+
+  // Перевірка кожного кабінету: НП — тестовий запит, маркетплейси — перша сторінка замовлень.
+  async testAccounts() {
+    const out = [];
+    for (const a of this.data.settings.accounts) {
+      if (a.kind === 'np') {
+        try {
+          const r = await np.track(['20450000000000'], { accounts: [a], fetch: this.fetch });
+          out.push({ name: a.name, kind: a.kind, ok: true, message: r.errors.length ? r.errors.join('; ') : 'працює' });
+        } catch (e) { out.push({ name: a.name, kind: a.kind, ok: false, message: e.message || String(e) }); }
+      } else {
+        out.push(Object.assign({ name: a.name, kind: a.kind }, await mp.testAccount(a, { fetch: this.fetch })));
+      }
+    }
+    return out;
+  }
+
+  // ---------- пошук за номером (Нова Пошта + маркетплейси) ----------
+  // Без запису в базу: {results: [...], errors: [..]}.
+  async trackNumbers(numbers) {
+    const list = [...new Set((Array.isArray(numbers) ? numbers : String(numbers || '').split(/[\s,;]+/)).map((n) => String(n || '').trim()).filter(Boolean))];
+    if (!list.length) return { results: new Map(), errors: [] };
+    try { return await lookup(list, this.data.settings.accounts, { fetch: this.fetch }); }
+    catch (e) { throw new ApiError(502, e.message || String(e)); }
+  }
+
+  // Підставити зведення в замовлення. withDate — також дату (з маркетплейсу або дата накладної).
   applyTracking(o, t, { withDate } = {}) {
-    const before = { status: o.status, amount: o.amount, date: o.date };
+    const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel };
     o.status = t.status;
     if (t.amount != null) o.amount = lib.round2(t.amount);
+    if (t.channel) o.channel = t.channel;
     if (!o.product && t.product) o.product = t.product;
-    if (withDate && t.dateCreated) o.date = t.dateCreated;
-    o.np = { status: t.npStatus, code: t.npCode, reason: t.reason, received: t.dateReceived, checked: todayLocal() };
-    return before.status !== o.status || before.amount !== o.amount || before.date !== o.date;
+    if (withDate && t.date) o.date = t.date;
+    o.track = { checked: todayLocal(), note: t.note, problem: t.problem, np: t.np, mp: t.mp, rd: t.rd };
+    return before.status !== o.status || before.amount !== o.amount || before.date !== o.date || before.channel !== o.channel;
   }
 
-  // Додати замовлення за номерами ТТН: статус, дата (створення накладної), сума (якщо НП її віддає).
+  // Додати замовлення за номерами (ТТН, PRM-…, номер замовлення): статус, сума, дата, канал — з джерел.
   // Повтор за «працівник + номер» оновлюється, а не дублюється.
   async addByTtn({ employee, employeeId, numbers, channel, product } = {}) {
     const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
-    const { found, bad } = await this.trackNumbers(numbers);
-    const res = { added: 0, updated: 0, notFound: [], skipped: bad, noAmount: [], orders: [] };
-    for (const [number, t] of found) {
-      if (!t.found) { res.notFound.push(number); continue; }
+    const { results, errors } = await this.trackNumbers(numbers);
+    const res = { added: 0, updated: 0, notFound: [], noAmount: [], errors, orders: [] };
+    for (const [number, t] of results) {
+      if (!t.found) { res.notFound.push(number); }
       let o = this.data.orders.find((x) => x.employeeId === emp.id && x.number === number);
       if (o) { if (this.applyTracking(o, t)) res.updated++; }
       else {
-        o = this.normalizeOrder({ employeeId: emp.id, number, product: product || t.product, channel, status: t.status, amount: t.amount || 0, date: t.dateCreated || todayLocal() });
+        if (!t.found) continue;
+        o = this.normalizeOrder({ employeeId: emp.id, number, product: product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
         this.data.orders.push(o);
         res.added++;
       }
-      if (t.amount == null) res.noAmount.push(number);
+      if (t.found && t.amount == null) res.noAmount.push(number);
       res.orders.push(o);
     }
     this.store.save();
     return res;
   }
 
-  // Перевірити в НП наявні замовлення: за ids або за фільтрами listOrders. Номери не-ТТН пропускаються.
+  // Перевірити наявні замовлення: за ids або за фільтрами listOrders. Замовлення без номера пропускаються.
   async refreshFromNp({ ids, employee, period, status, q, withDate } = {}) {
-    let orders = Array.isArray(ids) && ids.length
+    const orders = Array.isArray(ids) && ids.length
       ? this.data.orders.filter((o) => ids.map(Number).includes(o.id))
       : this.listOrders({ employee, period, status, q });
-    const res = { checked: 0, updated: 0, skipped: 0, notFound: [], changes: [] };
-    const withTtn = orders.filter((o) => np.isTtn(o.number));
-    res.skipped = orders.length - withTtn.length;
-    if (!withTtn.length) return res;
-    const { found } = await this.trackNumbers(withTtn.map((o) => o.number));
-    for (const o of withTtn) {
-      const t = found.get(o.number);
+    const res = { checked: 0, updated: 0, skipped: 0, notFound: [], errors: [], changes: [] };
+    const withNumber = orders.filter((o) => o.number);
+    res.skipped = orders.length - withNumber.length;
+    if (!withNumber.length) return res;
+    const { results, errors } = await this.trackNumbers(withNumber.map((o) => o.number));
+    res.errors = errors;
+    for (const o of withNumber) {
+      const t = results.get(o.number);
       if (!t) continue;
       res.checked++;
-      if (!t.found) { res.notFound.push(o.number); }
-      const before = { status: o.status, amount: o.amount, date: o.date };
+      if (!t.found) res.notFound.push(o.number);
+      const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel };
       if (this.applyTracking(o, t, { withDate })) {
         res.updated++;
-        res.changes.push({ id: o.id, number: o.number, from: before, to: { status: o.status, amount: o.amount, date: o.date } });
+        res.changes.push({ id: o.id, number: o.number, from: before, to: { status: o.status, amount: o.amount, date: o.date, channel: o.channel } });
       }
     }
     this.store.save();

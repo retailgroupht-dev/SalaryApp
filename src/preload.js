@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('api', {
   npTrack: (numbers) => ipcRenderer.invoke('np:track', numbers),
   npAdd: (p) => ipcRenderer.invoke('np:add', p),
   npRefresh: (p) => ipcRenderer.invoke('np:refresh', p),
+  accountsImport: (text) => ipcRenderer.invoke('accounts:import', text),
+  accountsTest: () => ipcRenderer.invoke('accounts:test'),
   importUrl: (p) => ipcRenderer.invoke('import:url', p),
   importFile: (p) => ipcRenderer.invoke('import:file', p),
   exportFile: (p) => ipcRenderer.invoke('export:file', p),
