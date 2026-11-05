@@ -5,7 +5,8 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
-// Стиль — плоска «мультяшна» іконка: зелена купюра під нахилом, дві золоті монети, товсті темні контури.
+// Стиль — плоска «мультяшна» іконка на білому заокругленому тлі: зелена купюра під нахилом,
+// дві золоті монети, товсті темні контури.
 const OUT = '#1f2937';
 const coin = (cx, cy) => `
   <g>
@@ -14,6 +15,7 @@ const coin = (cx, cy) => `
     <text x="${cx}" y="${cy + 8}" font-family="-apple-system,'Segoe UI',Arial,sans-serif" font-weight="800" font-size="150" fill="${OUT}" text-anchor="middle" dominant-baseline="middle">$</text>
   </g>`;
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" rx="200" fill="#ffffff"/>
   <g transform="rotate(-14 440 400)">
     <rect x="90" y="220" width="700" height="370" rx="34" fill="#4ade80" stroke="${OUT}" stroke-width="26"/>
     <rect x="134" y="264" width="612" height="282" rx="18" fill="none" stroke="#15803d" stroke-width="12"/>
