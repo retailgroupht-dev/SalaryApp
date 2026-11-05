@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   importFile: (p) => ipcRenderer.invoke('import:file', p),
   exportFile: (p) => ipcRenderer.invoke('export:file', p),
   apiStatus: () => ipcRenderer.invoke('api:status'),
+  apiDocs: () => ipcRenderer.invoke('api:docs'),
+  apiDocsSave: () => ipcRenderer.invoke('api:docsSave'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   appInfo: () => ipcRenderer.invoke('app:info'),

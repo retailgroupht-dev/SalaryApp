@@ -3,6 +3,7 @@
 // Якщо ключ задано, кожен запит має нести Authorization: Bearer <ключ>, X-Api-Key або ?key=.
 const http = require('http');
 const { ApiError } = require('./service');
+const { buildDocs } = require('./api-docs');
 
 const MAX_BODY = 50 * 1024 * 1024;
 
@@ -21,6 +22,7 @@ const ROUTES_DOC = [
   ['PUT', '/api/data', 'замінити базу даними з резервної копії'],
   ['GET', '/api/settings', 'налаштування'],
   ['PUT', '/api/settings', '{ratePercent} — змінити ставку'],
+  ['GET', '/api/docs', 'ця документація у Markdown (?download=1 — як файл)'],
 ];
 
 function readBody(req) {
@@ -95,6 +97,12 @@ function createApi(service, appInfo) {
       }
       if (m === 'GET' && p === '/api/data') return send(res, 200, service.data);
       if (m === 'PUT' && p === '/api/data') return send(res, 200, service.replaceData(json()));
+      if (m === 'GET' && p === '/api/docs') {
+        const md = docs(req.headers.host);
+        const h = { 'Content-Type': 'text/markdown; charset=utf-8' };
+        if (q.download) h['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent('API-розрахунок-зарплат.md')}`;
+        return send(res, 200, Buffer.from(md, 'utf8'), h);
+      }
       if (m === 'GET' && p === '/api/settings') return send(res, 200, service.data.settings);
       if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent })); }
       return send(res, 404, { error: 'Невідомий маршрут', routes: ROUTES_DOC });
@@ -134,7 +142,14 @@ function createApi(service, appInfo) {
     return { running: !!server, host: current && current.host, port: current && current.port, url: current ? `http://${current.host}:${current.port}` : '', error: lastError, routes: ROUTES_DOC };
   }
 
-  return { apply, stop, status, handle };
+  // Документація з актуальною адресою й ключем. hostHeader — з запиту (щоб у прикладах була адреса, якою звернулись).
+  function docs(hostHeader) {
+    const a = service.data.settings.api || {};
+    const base = hostHeader ? `http://${hostHeader}` : (status().url || `http://${a.host || '127.0.0.1'}:${a.port || 8765}`);
+    return buildDocs({ base, token: a.token || '', version: appInfo.version });
+  }
+
+  return { apply, stop, status, handle, docs };
 }
 
 module.exports = { createApi, ROUTES_DOC };

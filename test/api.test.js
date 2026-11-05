@@ -77,6 +77,14 @@ test('API: health, працівники, замовлення, зарплата,
     assert.strictEqual(r.status, 200);
     assert.strictEqual(t.service.data.orders.some((o) => o.employeeId === testId), false);
 
+    r = await t.call('GET', '/api/docs');
+    assert.strictEqual(r.status, 200);
+    assert.ok(r.headers.get('content-type').includes('text/markdown'));
+    assert.ok(r.body.toString('utf8').includes('## Маршрути'));
+    assert.ok(r.body.toString('utf8').includes(t.base)); // адреса з запиту підставляється у приклади
+    r = await t.call('GET', '/api/docs?download=1');
+    assert.ok(r.headers.get('content-disposition').includes('attachment'));
+
     r = await t.call('POST', '/api/orders', { employee: 'Невідомий', number: 'X', amount: 1 });
     assert.strictEqual(r.status, 400);
     r = await t.call('GET', '/api/nope');

@@ -149,17 +149,47 @@ async function renderApiStatus() {
   if (st.running) { el.textContent = `Працює: ${st.url}`; el.className = 'status ok'; }
   else if (st.error) { el.textContent = `Не запустився: ${st.error}`; el.className = 'status err'; }
   else { el.textContent = 'Вимкнено'; el.className = 'status'; }
-  const base = st.url || `http://${$('#apiHost').value || '127.0.0.1'}:${$('#apiPort').value || 8765}`;
-  const token = (data.settings.api || {}).token;
-  const auth = token ? ` -H "Authorization: Bearer ${token}"` : '';
-  $('#apiExample').textContent = [
-    `curl${auth} "${base}/api/salary?period=${monthOf(today())}"`,
-    `curl${auth} -o зарплата.xlsx "${base}/api/export?format=xlsx&period=${monthOf(today())}"`,
-    `curl${auth} -G --data-urlencode "employee=Настя" --data-urlencode "status=ok" "${base}/api/orders"`,
-    `curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/orders" \\`,
-    `  -d '{"employee":"Настя","number":"20451500000000","amount":350,"status":"ok","channel":"Rozetka"}'`,
-  ].join('\n');
-  $('#apiRoutes tbody').innerHTML = (st.routes || []).map((r) => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('');
+  if (!$('#apiDocs').classList.contains('hidden')) renderDocs();
+}
+
+async function renderDocs() {
+  $('#apiDocs').innerHTML = markdownToHtml(await window.api.apiDocs());
+}
+
+// Мінімальний Markdown → HTML для документації: заголовки, абзаци, списки, таблиці,
+// блоки коду, `код`, **жирний**.
+function markdownToHtml(md) {
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  const lines = md.split('\n');
+  let html = '', i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.startsWith('```')) {
+      const buf = []; i++;
+      while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]);
+      i++; html += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue;
+    }
+    const h = /^(#{1,3})\s+(.*)$/.exec(l);
+    if (h) { html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; i++; continue; }
+    if (l.startsWith('|')) {
+      const rows = []; while (i < lines.length && lines[i].startsWith('|')) rows.push(lines[i++]);
+      const cells = (r) => r.replace(/^\||\|$/g, '').split('|').map((c) => inline(c.trim()));
+      const body = rows.filter((r) => !/^\|\s*-{3,}/.test(r));
+      html += '<table><thead><tr>' + cells(body[0]).map((c) => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' +
+        body.slice(1).map((r) => '<tr>' + cells(r).map((c) => `<td>${c}</td>`).join('') + '</tr>').join('') + '</tbody></table>';
+      continue;
+    }
+    if (/^\s*-\s+/.test(l)) {
+      const items = []; while (i < lines.length && /^\s*-\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*-\s+/, ''));
+      html += '<ul>' + items.map((x) => `<li>${inline(x)}</li>`).join('') + '</ul>'; continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    const para = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||\s*-\s)/.test(lines[i])) para.push(lines[i++]);
+    html += `<p>${inline(para.join(' '))}</p>`;
+  }
+  return html;
 }
 
 function setUpdateStatus(u) {
@@ -290,6 +320,13 @@ function bind() {
     try { data.settings = await window.api.saveSettings({ api: apiCfg }); renderSettings(); }
     catch (e) { alert((e.message || String(e)).replace(/^.*Error: /, '')); }
   });
+  $('#toggleDocs').addEventListener('click', async () => {
+    const box = $('#apiDocs');
+    box.classList.toggle('hidden');
+    $('#toggleDocs').textContent = box.classList.contains('hidden') ? 'Показати документацію' : 'Сховати документацію';
+    if (!box.classList.contains('hidden')) await renderDocs();
+  });
+  $('#saveDocs').addEventListener('click', async () => { const p = await window.api.apiDocsSave(); if (p) alert('Збережено: ' + p); });
   $('#checkUpdate').addEventListener('click', async () => setUpdateStatus(await window.api.checkUpdate()));
   $('#installUpdate').addEventListener('click', () => window.api.installUpdate());
   $('#releasesLink').addEventListener('click', (e) => { e.preventDefault(); window.api.openExternal(info.releasesUrl); });

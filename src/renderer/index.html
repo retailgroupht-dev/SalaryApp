@@ -117,10 +117,11 @@
           <button id="saveApi">Застосувати</button>
         </div>
         <div id="apiStatus" class="status"></div>
-        <details id="apiDocs"><summary>Маршрути й приклад</summary>
-          <pre id="apiExample" class="code"></pre>
-          <table class="grid small" id="apiRoutes"><thead><tr><th>Метод</th><th>Шлях</th><th>Що робить</th></tr></thead><tbody></tbody></table>
-        </details>
+        <div class="row" style="margin-top:10px">
+          <button id="toggleDocs" class="secondary">Показати документацію</button>
+          <button id="saveDocs" class="secondary">Завантажити документацію (.md)</button>
+        </div>
+        <div id="apiDocs" class="docs hidden"></div>
       </div>
       <div class="panel">
         <h2>Оновлення</h2>

@@ -38,7 +38,8 @@ function createWindow() {
         await shot(process.env.SALARY_SMOKE_SHOT);
         for (const tab of ['orders', 'settings']) {
           await win.webContents.executeJavaScript(`document.querySelector('[data-tab=${tab}]').click()`);
-          await new Promise((r) => setTimeout(r, 500));
+          if (tab === 'settings') await win.webContents.executeJavaScript("document.querySelector('#toggleDocs').click()");
+          await new Promise((r) => setTimeout(r, 800));
           await shot(process.env.SALARY_SMOKE_SHOT.replace(/\.png$/, '') + `-${tab}.png`);
         }
         console.log('smoke: знімки збережено');
@@ -121,6 +122,17 @@ function registerIpc() {
   });
 
   ipcMain.handle('api:status', () => api.status());
+  ipcMain.handle('api:docs', () => api.docs());
+  ipcMain.handle('api:docsSave', async () => {
+    const r = await dialog.showSaveDialog(win, {
+      title: 'Зберегти документацію API',
+      defaultPath: 'API-розрахунок-зарплат.md',
+      filters: [{ name: 'Markdown', extensions: ['md'] }, { name: 'Текст', extensions: ['txt'] }],
+    });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, api.docs(), 'utf8');
+    return r.filePath;
+  });
 
   ipcMain.handle('update:check', async () => {
     if (!autoUpdater) return { status: 'error', message: 'Оновлювач недоступний' };

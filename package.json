@@ -10,6 +10,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
+    "docs": "node src/api-docs.js > API.md",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "release": "electron-builder --publish always"

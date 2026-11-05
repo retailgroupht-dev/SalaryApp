@@ -32,7 +32,11 @@
 `POST /api/orders` (об’єкт або масив; без `id` — злиття за «працівник + номер»),
 `DELETE /api/orders/:id`, `POST /api/import` (`{employee, url}` або `{employee, csv}`),
 `GET /api/export?format=xlsx|csv&period=`, `GET|PUT /api/data` (резервна копія),
-`GET|PUT /api/settings`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.
+`GET|PUT /api/settings`, `GET /api/docs`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.
+
+Повна документація — `src/api-docs.js` (одне джерело): показується у вкладці Налаштування,
+завантажується звідти файлом `.md`, віддається `GET /api/docs`, а `npm run docs` оновлює
+`API.md` у репозиторії. Змінивши маршрути, оновити `api-docs.js` і перегенерувати `API.md`.
 
 ## Запуск і перевірка
 
