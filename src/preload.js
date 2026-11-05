@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   importUrl: (p) => ipcRenderer.invoke('import:url', p),
   importFile: (p) => ipcRenderer.invoke('import:file', p),
   exportFile: (p) => ipcRenderer.invoke('export:file', p),
+  apiStatus: () => ipcRenderer.invoke('api:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   appInfo: () => ipcRenderer.invoke('app:info'),

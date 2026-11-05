@@ -107,6 +107,22 @@
         </div>
       </div>
       <div class="panel">
+        <h2>Локальний API</h2>
+        <p class="hint">HTTP-доступ до даних для інших програм і скриптів на цьому комп'ютері: замовлення, працівники, розрахунок, файли експорту, резервна копія. Адреса 127.0.0.1 — лише з цього комп'ютера; 0.0.0.0 — також з локальної мережі (тоді обов'язково задайте ключ).</p>
+        <div class="row">
+          <label class="check"><span><input id="apiEnabled" type="checkbox"> Увімкнути</span></label>
+          <label>Адреса <input id="apiHost" placeholder="127.0.0.1"></label>
+          <label>Порт <input id="apiPort" type="number" min="1" max="65535"></label>
+          <label class="grow">Ключ (порожній = без перевірки) <input id="apiToken" placeholder="будь-який секретний рядок"></label>
+          <button id="saveApi">Застосувати</button>
+        </div>
+        <div id="apiStatus" class="status"></div>
+        <details id="apiDocs"><summary>Маршрути й приклад</summary>
+          <pre id="apiExample" class="code"></pre>
+          <table class="grid small" id="apiRoutes"><thead><tr><th>Метод</th><th>Шлях</th><th>Що робить</th></tr></thead><tbody></tbody></table>
+        </details>
+      </div>
+      <div class="panel">
         <h2>Оновлення</h2>
         <div class="row">
           <span id="appVersion"></span>

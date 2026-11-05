@@ -45,7 +45,8 @@ function calcRows(period) {
     const orders = data.orders.filter((o) => o.employeeId === e.id && (!period || monthOf(o.date) === period));
     const cnt = (s) => orders.filter((o) => o.status === s).length;
     const sumDone = orders.filter((o) => o.status === 'ok').reduce((a, o) => a + (Number(o.amount) || 0), 0);
-    return { e, r, total: orders.length, done: cnt('ok'), refused: cnt('refused'), cancelled: cnt('cancelled'), nodata: cnt('nodata'), checking: cnt('checking'), sumDone, salary: sumDone * r / 100 };
+    const round2 = (n) => Math.round(n * 100) / 100;
+    return { e, r, total: orders.length, done: cnt('ok'), refused: cnt('refused'), cancelled: cnt('cancelled'), nodata: cnt('nodata'), checking: cnt('checking'), sumDone: round2(sumDone), salary: round2(sumDone * r / 100) };
   });
 }
 
@@ -134,6 +135,31 @@ function renderSettings() {
   $('#ratePercent').value = data.settings.ratePercent;
   $('#appVersion').textContent = `Версія ${info.version || ''}`;
   $('#dataFile').textContent = info.dataFile || '';
+  const a = data.settings.api || {};
+  $('#apiEnabled').checked = !!a.enabled;
+  $('#apiHost').value = a.host || '127.0.0.1';
+  $('#apiPort').value = a.port || 8765;
+  $('#apiToken').value = a.token || '';
+  renderApiStatus();
+}
+
+async function renderApiStatus() {
+  const st = await window.api.apiStatus();
+  const el = $('#apiStatus');
+  if (st.running) { el.textContent = `Працює: ${st.url}`; el.className = 'status ok'; }
+  else if (st.error) { el.textContent = `Не запустився: ${st.error}`; el.className = 'status err'; }
+  else { el.textContent = 'Вимкнено'; el.className = 'status'; }
+  const base = st.url || `http://${$('#apiHost').value || '127.0.0.1'}:${$('#apiPort').value || 8765}`;
+  const token = (data.settings.api || {}).token;
+  const auth = token ? ` -H "Authorization: Bearer ${token}"` : '';
+  $('#apiExample').textContent = [
+    `curl${auth} "${base}/api/salary?period=${monthOf(today())}"`,
+    `curl${auth} -o зарплата.xlsx "${base}/api/export?format=xlsx&period=${monthOf(today())}"`,
+    `curl${auth} -G --data-urlencode "employee=Настя" --data-urlencode "status=ok" "${base}/api/orders"`,
+    `curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/orders" \\`,
+    `  -d '{"employee":"Настя","number":"20451500000000","amount":350,"status":"ok","channel":"Rozetka"}'`,
+  ].join('\n');
+  $('#apiRoutes tbody').innerHTML = (st.routes || []).map((r) => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('');
 }
 
 function setUpdateStatus(u) {
@@ -257,6 +283,12 @@ function bind() {
     if (!Number.isFinite(rate) || rate < 0) return alert('Вкажіть ставку числом');
     data.settings = await window.api.saveSettings({ ratePercent: rate });
     renderAll();
+  });
+  $('#saveApi').addEventListener('click', async () => {
+    const apiCfg = { enabled: $('#apiEnabled').checked, host: $('#apiHost').value.trim() || '127.0.0.1', port: Number($('#apiPort').value) || 8765, token: $('#apiToken').value.trim() };
+    if (apiCfg.enabled && apiCfg.host !== '127.0.0.1' && apiCfg.host !== 'localhost' && !apiCfg.token && !confirm('API буде доступний з мережі без ключа. Продовжити?')) return;
+    try { data.settings = await window.api.saveSettings({ api: apiCfg }); renderSettings(); }
+    catch (e) { alert((e.message || String(e)).replace(/^.*Error: /, '')); }
   });
   $('#checkUpdate').addEventListener('click', async () => setUpdateStatus(await window.api.checkUpdate()));
   $('#installUpdate').addEventListener('click', () => window.api.installUpdate());

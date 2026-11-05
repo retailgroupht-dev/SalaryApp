@@ -146,7 +146,7 @@ function mergeOrders(existing, incoming, nextId) {
         cur.status = inc.status; cur.amount = inc.amount; cur.channel = inc.channel; updated++;
       }
     } else {
-      const o = Object.assign({ id: nextId() }, inc);
+      const o = Object.assign({}, inc, { id: nextId() });
       orders.push(o);
       if (o.number) byKey.set(key, o);
       added++;

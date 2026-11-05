@@ -15,9 +15,24 @@
   злиття за номером, розрахунок, запис XLSX (власний zip без бібліотек). Тести — `test/`.
 - `src/store.js` — усі дані в одному `data.json` у теці користувача
   (Win `%APPDATA%\Розрахунок зарплат\`, Mac `~/Library/Application Support/Розрахунок зарплат/`).
-- `src/main.js` — вікно, IPC, імпорт за посиланням на Google Таблицю (експорт CSV, доступ
-  «усім за посиланням», у посиланні має бути `#gid=` потрібного аркуша), експорт, автооновлення.
+- `src/service.js` — уся робота з даними (працівники, замовлення, імпорт, розрахунок, експорт,
+  резервна копія); нею користуються і вікно (IPC), і HTTP API. Помилки — `ApiError(status, msg)`.
+- `src/api.js` — локальний HTTP API (`http`, JSON), маршрути в `ROUTES_DOC`.
+- `src/main.js` — вікно, IPC, діалоги файлів, автооновлення; імпорт за посиланням на Google
+  Таблицю (експорт CSV, доступ «усім за посиланням», у посиланні має бути `#gid=` аркуша).
 - `src/renderer/` — інтерфейс (вкладки Зарплата / Замовлення / Працівники / Налаштування).
+
+## Локальний API
+
+Вмикається в Налаштуваннях (типово увімкнено, `http://127.0.0.1:8765`, без ключа). Ключ —
+`Authorization: Bearer …`, `X-Api-Key` або `?key=`. Адреса `0.0.0.0` відкриває API в локальну
+мережу — лише з ключем. Маршрути (повний перелік і приклади curl — у вкладці Налаштування):
+`GET /api/health`, `GET /api/salary?period=YYYY-MM`, `GET|POST /api/employees`,
+`DELETE /api/employees/:id`, `GET /api/orders?employee=&period=&status=&q=`,
+`POST /api/orders` (об’єкт або масив; без `id` — злиття за «працівник + номер»),
+`DELETE /api/orders/:id`, `POST /api/import` (`{employee, url}` або `{employee, csv}`),
+`GET /api/export?format=xlsx|csv&period=`, `GET|PUT /api/data` (резервна копія),
+`GET|PUT /api/settings`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.
 
 ## Запуск і перевірка
 

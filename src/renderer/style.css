@@ -63,6 +63,13 @@ table.grid { width: 100%; border-collapse: collapse; background: var(--panel); b
 .detail { margin-top: 18px; }
 .hidden { display: none !important; }
 
+label.check { justify-content: flex-end; color: var(--text); font-size: 14px; padding-bottom: 6px; }
+label.check span { display: flex; align-items: center; gap: 6px; }
+pre.code { background: #1e293b; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-size: 12px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+details summary { cursor: pointer; color: var(--accent); margin: 6px 0 10px; }
+.grid.small th, .grid.small td { padding: 5px 8px; font-size: 12px; white-space: normal; }
+.grid.small td:nth-child(2) { font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+
 .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; }
 .modal-box { background: #fff; border-radius: 10px; padding: 20px 22px; width: 460px; display: flex; flex-direction: column; gap: 10px; }
 .modal-box label { font-size: 12px; }

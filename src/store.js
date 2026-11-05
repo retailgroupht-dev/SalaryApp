@@ -5,10 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const { DEFAULT_EMPLOYEES } = require('./lib');
 
+function defaultApi() { return { enabled: true, host: '127.0.0.1', port: 8765, token: '' }; }
+
 function emptyData() {
   return {
     version: 1,
-    settings: { ratePercent: 5, sheetUrls: [] },
+    settings: { ratePercent: 5, sheetUrls: [], api: defaultApi() },
     employees: DEFAULT_EMPLOYEES.map((name, i) => ({ id: i + 1, name, ratePercent: null })),
     orders: [],
     nextId: 1000,
@@ -26,9 +28,11 @@ class Store {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
       const base = emptyData();
+      const settings = Object.assign(base.settings, d.settings || {});
+      settings.api = Object.assign(defaultApi(), settings.api || {});
       return {
         version: 1,
-        settings: Object.assign(base.settings, d.settings || {}),
+        settings,
         employees: Array.isArray(d.employees) ? d.employees : base.employees,
         orders: Array.isArray(d.orders) ? d.orders : [],
         nextId: Number(d.nextId) || 1000,
