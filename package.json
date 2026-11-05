@@ -22,7 +22,7 @@
     "artifactName": "salary-app-${version}-${os}-${arch}.${ext}",
     "files": ["src/**/*", "build/icon.png", "package.json"],
     "directories": { "output": "dist" },
-    "publish": { "provider": "github", "owner": "retailgroupht-dev", "repo": "SalaryApp" },
+    "publish": { "provider": "github", "owner": "retailgroupht-dev", "repo": "SalaryApp", "releaseType": "release" },
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
     "nsis": { "oneClick": true, "perMachine": false, "language": "1058" },
     "mac": { "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }], "category": "public.app-category.finance", "identity": null },
