@@ -12,7 +12,7 @@ let service = null;
 let api = null;
 let autoUpdater = null;
 
-const RELEASES_URL = 'https://github.com/retailgroupht-dev/ht-dron/releases';
+const RELEASES_URL = 'https://github.com/retailgroupht-dev/SalaryApp/releases';
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
 
 // Дані з версії до перейменування (тека «Розрахунок зарплат») переносяться в теку SalaryApp.

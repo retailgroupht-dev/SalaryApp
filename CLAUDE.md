@@ -1,4 +1,4 @@
-# CanculateSalaryApp — SalaryApp
+# SalaryApp
 
 Десктопний застосунок (Electron, Windows/macOS) для розрахунку зарплат працівників за
 виконаними замовленнями. Замінює ручний підрахунок у Google Таблицях «Настя Пром+Розетка»
@@ -69,14 +69,14 @@ npm run pack && open dist/mac-arm64/SalaryApp.app   # зібраний заст�
 ## Випуск версії й автооновлення
 
 1. Підняти `version` у `package.json`.
-2. Запушити тег `salary-v<версія>` — workflow `.github/workflows/salary-app-release.yml`
-   збирає Windows (nsis) і macOS (dmg+zip) і публікує реліз `v<версія>` у GitHub Releases
-   репозиторію `retailgroupht-dev/ht-dron` (`build.publish` у `package.json`).
+2. Запушити тег `v<версія>` — workflow `.github/workflows/release.yml` збирає Windows (nsis)
+   і macOS (dmg+zip) і публікує реліз у GitHub Releases цього репозиторію
+   (`retailgroupht-dev/SalaryApp`, публічний; `build.publish` у `package.json`).
 3. Застосунок при запуску перевіряє реліз через electron-updater, завантажує й ставить
    після перезапуску. Обмеження: без сертифіката Apple автооновлення на macOS не працює
-   (лише завантаження з Releases вручну); якщо репозиторій приватний, оновлювач не бачить
-   релізів — потрібен окремий публічний репозиторій для релізів (змінити `build.publish`).
+   (лише завантаження з Releases вручну). Репозиторій має лишатися публічним, інакше
+   оновлювач не бачить релізів.
 
-Цей проєкт окремий від схеми «робочий чат / адміністратор» решти репозиторію: чат, відкритий
-у цій папці, сам комітить і пушить (у репо він лише для зручності). `node_modules/` і `dist/`
-у `.gitignore`.
+Самостійний репозиторій (раніше жив у `ht-dron/CanculateSalaryApp`): чат, відкритий у цій
+теці, сам комітить і пушить. Мова всього для людини — українська. Код — у git; дані, ключі
+(`nastya.txt`, `tovkes.txt` — Apps Script таблиць із токенами), `node_modules/` і `dist/` — ні.

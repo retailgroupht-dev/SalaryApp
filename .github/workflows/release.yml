@@ -1,0 +1,37 @@
+# Збірка SalaryApp для Windows і macOS і публікація у GitHub Releases,
+# звідки застосунок сам підтягує оновлення (electron-updater).
+#
+# Запуск: пуш тега виду v0.1.0 (версія має збігатися з package.json)
+# або вручну з вкладки Actions.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Збірка й публікація
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS: без сертифіката Apple збірка не підписується (identity: null);
+          # у такому разі автооновлення на Mac не працює, лише завантаження з Releases.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
