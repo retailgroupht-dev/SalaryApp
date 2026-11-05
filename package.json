@@ -1,8 +1,8 @@
 {
   "name": "salary-app",
-  "productName": "Розрахунок зарплат",
+  "productName": "SalaryApp",
   "version": "0.1.0",
-  "description": "Розрахунок зарплат працівників за виконаними замовленнями (ht-dron)",
+  "description": "SalaryApp — розрахунок зарплат працівників за виконаними замовленнями (ht-dron)",
   "main": "src/main.js",
   "author": "ht-dron",
   "license": "UNLICENSED",
@@ -17,9 +17,10 @@
   },
   "build": {
     "appId": "pl.htdron.salary",
-    "productName": "Розрахунок зарплат",
+    "productName": "SalaryApp",
+    "icon": "build/icon.png",
     "artifactName": "salary-app-${version}-${os}-${arch}.${ext}",
-    "files": ["src/**/*", "package.json"],
+    "files": ["src/**/*", "build/icon.png", "package.json"],
     "directories": { "output": "dist" },
     "publish": { "provider": "github", "owner": "retailgroupht-dev", "repo": "ht-dron" },
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },

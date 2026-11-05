@@ -1,4 +1,4 @@
-# CanculateSalaryApp — «Розрахунок зарплат»
+# CanculateSalaryApp — SalaryApp
 
 Десктопний застосунок (Electron, Windows/macOS) для розрахунку зарплат працівників за
 виконаними замовленнями. Замінює ручний підрахунок у Google Таблицях «Настя Пром+Розетка»
@@ -27,7 +27,8 @@
   ніде немає → nodata, НП ще не видала → checking (у таблиці такі рядки вже «ОК» — свідома відмінність).
   Кабінети — `settings.accounts: [{kind: np|prom|rozetka|epicentr, name, token}]`, назва = канал.
 - `src/store.js` — усі дані в одному `data.json` у теці користувача
-  (Win `%APPDATA%\Розрахунок зарплат\`, Mac `~/Library/Application Support/Розрахунок зарплат/`).
+  (Win `%APPDATA%\SalaryApp\`, Mac `~/Library/Application Support/SalaryApp/`; дані зі старої теки
+  «Розрахунок зарплат» переносяться при першому запуску). Іконка — `build/icon.png` (генерує `build/make-icon.js`).
 - `src/service.js` — уся робота з даними (працівники, замовлення, імпорт, розрахунок, експорт,
   резервна копія); нею користуються і вікно (IPC), і HTTP API. Помилки — `ApiError(status, msg)`.
 - `src/api.js` — локальний HTTP API (`http`, JSON), маршрути в `ROUTES_DOC`.

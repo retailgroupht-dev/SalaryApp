@@ -1,6 +1,6 @@
 'use strict';
 // Зберігання даних застосунку: один JSON-файл у теці користувача
-// (Windows: %APPDATA%\Розрахунок зарплат\data.json, macOS: ~/Library/Application Support/…).
+// (Windows: %APPDATA%\SalaryApp\data.json, macOS: ~/Library/Application Support/SalaryApp/…).
 const fs = require('fs');
 const path = require('path');
 const { DEFAULT_EMPLOYEES } = require('./lib');

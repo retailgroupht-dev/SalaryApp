@@ -111,7 +111,7 @@ function createApi(service, appInfo) {
       if (m === 'GET' && p === '/api/docs') {
         const md = docs(req.headers.host);
         const h = { 'Content-Type': 'text/markdown; charset=utf-8' };
-        if (q.download) h['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent('API-розрахунок-зарплат.md')}`;
+        if (q.download) h['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent('SalaryApp-API.md')}`;
         return send(res, 200, Buffer.from(md, 'utf8'), h);
       }
       if (m === 'GET' && p === '/api/settings') return send(res, 200, service.data.settings);

@@ -13,6 +13,19 @@ let api = null;
 let autoUpdater = null;
 
 const RELEASES_URL = 'https://github.com/retailgroupht-dev/ht-dron/releases';
+const ICON = path.join(__dirname, '..', 'build', 'icon.png');
+
+// Дані з версії до перейменування (тека «Розрахунок зарплат») переносяться в теку SalaryApp.
+function migrateOldDataDir(userData) {
+  try {
+    const target = path.join(userData, 'data.json');
+    const old = path.join(path.dirname(userData), 'Розрахунок зарплат', 'data.json');
+    if (!fs.existsSync(target) && fs.existsSync(old)) {
+      fs.mkdirSync(userData, { recursive: true });
+      fs.copyFileSync(old, target);
+    }
+  } catch (e) { console.log('migrate:', e.message); }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -20,7 +33,8 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Розрахунок зарплат',
+    title: 'SalaryApp',
+    icon: ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -132,7 +146,7 @@ function registerIpc() {
   ipcMain.handle('api:docsSave', async () => {
     const r = await dialog.showSaveDialog(win, {
       title: 'Зберегти документацію API',
-      defaultPath: 'API-розрахунок-зарплат.md',
+      defaultPath: 'SalaryApp-API.md',
       filters: [{ name: 'Markdown', extensions: ['md'] }, { name: 'Текст', extensions: ['txt'] }],
     });
     if (r.canceled || !r.filePath) return null;
@@ -163,6 +177,8 @@ function registerIpc() {
 if (process.env.SALARY_DATA_DIR) app.setPath('userData', process.env.SALARY_DATA_DIR);
 
 app.whenReady().then(async () => {
+  if (!process.env.SALARY_DATA_DIR) migrateOldDataDir(app.getPath('userData'));
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) app.dock.setIcon(ICON);
   store = new Store(app.getPath('userData'));
   service = new Service(store);
   api = createApi(service, { version: app.getVersion() });
