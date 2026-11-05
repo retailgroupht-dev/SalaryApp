@@ -431,6 +431,20 @@ function bind() {
   $('#installUpdate').addEventListener('click', () => window.api.installUpdate());
   $('#releasesLink').addEventListener('click', (e) => { e.preventDefault(); window.api.openExternal(info.releasesUrl); });
   $('#showDataFile').addEventListener('click', (e) => { e.preventDefault(); window.api.showDataFile(); });
+  const backupStatus = (msg, cls) => { const el = $('#backupStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
+  $('#backupSave').addEventListener('click', async () => {
+    try { const p = await window.api.backupSave(); if (p) backupStatus('Збережено: ' + p, 'ok'); }
+    catch (e) { backupStatus('Помилка: ' + errMsg(e), 'err'); }
+  });
+  $('#backupRestore').addEventListener('click', async () => {
+    if (!confirm('Відновлення замінить усі поточні дані (замовлення, працівників, ключі) даними з файлу. Продовжити?')) return;
+    try {
+      const r = await window.api.backupRestore();
+      if (!r) return;
+      backupStatus(`Відновлено: працівників ${r.employees}, замовлень ${r.orders}`, 'ok');
+      reload(r.data);
+    } catch (e) { backupStatus('Помилка: ' + errMsg(e), 'err'); }
+  });
   window.api.onUpdateStatus(setUpdateStatus);
 }
 

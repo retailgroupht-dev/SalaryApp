@@ -171,6 +171,12 @@
       <div class="panel">
         <h2>Дані</h2>
         <p class="hint">Усе зберігається в одному файлі: <code id="dataFile"></code> <a href="#" id="showDataFile">показати</a></p>
+        <div class="row">
+          <button id="backupSave" class="secondary">Зберегти резервну копію…</button>
+          <button id="backupRestore" class="secondary">Відновити з резервної копії…</button>
+        </div>
+        <p class="hint" style="margin-bottom:0">Резервна копія — один файл із замовленнями, працівниками, ставками і ключами кабінетів. Так можна перенести все на інший комп’ютер: там відновити з цього файлу. Відновлення замінює поточні дані.</p>
+        <div id="backupStatus" class="status"></div>
       </div>
     </section>
   </main>

@@ -332,6 +332,8 @@ class Service {
   replaceData(d) {
     if (!d || !Array.isArray(d.employees) || !Array.isArray(d.orders)) throw new ApiError(400, 'Очікую об’єкт із полями employees і orders');
     const settings = Object.assign({}, this.data.settings, d.settings || {}, { api: this.data.settings.api });
+    settings.accounts = this.cleanAccounts(settings.accounts);
+    settings.ratePercent = Number(settings.ratePercent) || 5;
     this.data.settings = settings;
     this.data.employees = d.employees.map((e) => ({ id: Number(e.id), name: String(e.name || '').trim(), ratePercent: e.ratePercent == null ? null : Number(e.ratePercent) })).filter((e) => e.id && e.name);
     const ids = new Set(this.data.employees.map((e) => e.id));

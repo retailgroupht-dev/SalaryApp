@@ -171,6 +171,29 @@ function registerIpc() {
   }));
   ipcMain.handle('app:openExternal', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
   ipcMain.handle('app:showDataFile', () => shell.showItemInFolder(store.file));
+  ipcMain.handle('data:backup', async () => {
+    const r = await dialog.showSaveDialog(win, {
+      title: 'Зберегти резервну копію',
+      defaultPath: `SalaryApp-копія-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, JSON.stringify(service.data, null, 1), 'utf8');
+    return r.filePath;
+  });
+  ipcMain.handle('data:restore', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Оберіть файл резервної копії',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    let parsed;
+    try { parsed = JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8')); }
+    catch (e) { throw new Error('Файл не читається як JSON'); }
+    const res = service.replaceData(parsed);
+    return Object.assign(res, { data: service.data });
+  });
 }
 
 // SALARY_DATA_DIR — інша тека даних (для перевірок, щоб не чіпати робочу базу).

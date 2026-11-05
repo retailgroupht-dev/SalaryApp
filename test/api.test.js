@@ -129,8 +129,12 @@ test('API: імпорт CSV, резервна копія, ставка', async (
     const backup = r.body;
     assert.strictEqual(backup.orders.length, 2);
     backup.orders.push({ employeeId: backup.employees[0].id, number: 'Z', amount: 10, status: 'ok', date: '2026-10-01' });
+    backup.settings.accounts = [{ kind: 'prom', name: 'Пром 1', token: 'p' }, { kind: 'bad', token: 'x' }];
+    backup.settings.api = { port: 1 }; // налаштування API з копії не переносяться
     r = await t.call('PUT', '/api/data', backup);
     assert.deepStrictEqual(r.body, { employees: 6, orders: 3 });
+    assert.deepStrictEqual(t.service.data.settings.accounts, [{ kind: 'prom', name: 'Пром 1', token: 'p' }]);
+    assert.strictEqual(t.service.data.settings.api.port, 8765);
     r = await t.call('PUT', '/api/data', { foo: 1 });
     assert.strictEqual(r.status, 400);
   } finally { await t.cleanup(); }

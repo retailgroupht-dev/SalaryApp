@@ -23,5 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   appInfo: () => ipcRenderer.invoke('app:info'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   showDataFile: () => ipcRenderer.invoke('app:showDataFile'),
+  backupSave: () => ipcRenderer.invoke('data:backup'),
+  backupRestore: () => ipcRenderer.invoke('data:restore'),
   onUpdateStatus: (cb) => ipcRenderer.on('update:status', (_e, info) => cb(info)),
 });
