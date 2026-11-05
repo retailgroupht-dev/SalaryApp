@@ -1,0 +1,36 @@
+{
+  "name": "salary-app",
+  "productName": "Розрахунок зарплат",
+  "version": "0.1.0",
+  "description": "Розрахунок зарплат працівників за виконаними замовленнями (ht-dron)",
+  "main": "src/main.js",
+  "author": "ht-dron",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "release": "electron-builder --publish always"
+  },
+  "build": {
+    "appId": "pl.htdron.salary",
+    "productName": "Розрахунок зарплат",
+    "artifactName": "salary-app-${version}-${os}-${arch}.${ext}",
+    "files": ["src/**/*", "package.json"],
+    "directories": { "output": "dist" },
+    "publish": { "provider": "github", "owner": "retailgroupht-dev", "repo": "ht-dron" },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "nsis": { "oneClick": true, "perMachine": false, "language": "1058" },
+    "mac": { "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }], "category": "public.app-category.finance", "identity": null },
+    "linux": { "target": ["AppImage"] }
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}

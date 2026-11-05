@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Розрахунок зарплат</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="brand">Розрахунок зарплат</div>
+    <button class="nav active" data-tab="salary">Зарплата</button>
+    <button class="nav" data-tab="orders">Замовлення</button>
+    <button class="nav" data-tab="employees">Працівники</button>
+    <button class="nav" data-tab="settings">Налаштування</button>
+    <div class="spacer"></div>
+    <div id="updateBar" class="update-bar hidden"></div>
+    <div class="version" id="versionLabel"></div>
+  </nav>
+
+  <main>
+    <!-- Зарплата -->
+    <section id="tab-salary" class="tab active">
+      <header>
+        <h1>Зарплата</h1>
+        <div class="toolbar">
+          <label>Період <select id="salaryPeriod"></select></label>
+          <button id="exportXlsx">Експорт XLSX</button>
+          <button id="exportCsv" class="secondary">Експорт CSV</button>
+        </div>
+      </header>
+      <p class="hint">Зарплата = сума замовлень зі статусом «Виконано» × ставка. Відмови, скасування й «немає даних» не рахуються.</p>
+      <table id="salaryTable" class="grid">
+        <thead><tr>
+          <th>Працівник</th><th class="num">Ставка, %</th><th class="num">Замовлень</th><th class="num">Виконано</th>
+          <th class="num">Відмови</th><th class="num">Скасовано</th><th class="num">Немає даних</th><th class="num">Перевіряється</th>
+          <th class="num">Сума виконаних</th><th class="num">Зарплата</th>
+        </tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table>
+      <div id="salaryDetail" class="detail hidden">
+        <h2 id="salaryDetailTitle"></h2>
+        <table class="grid fixed"><colgroup><col style="width:100px"><col><col style="width:160px"><col style="width:100px"><col style="width:90px"><col style="width:118px"></colgroup>
+          <thead><tr><th>Дата</th><th>Товар</th><th>Номер</th><th class="num">Сума</th><th>Канал</th><th>Статус</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- Замовлення -->
+    <section id="tab-orders" class="tab">
+      <header>
+        <h1>Замовлення</h1>
+        <div class="toolbar">
+          <button id="addOrder">Додати замовлення</button>
+        </div>
+      </header>
+      <div class="panel">
+        <h2>Імпорт із Google Таблиці</h2>
+        <div class="row">
+          <label>Працівник <select id="importEmployee"></select></label>
+          <label class="grow">Посилання на потрібний аркуш (з #gid= в адресі) <input id="importUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+          <label>Дата для нових <input id="importDate" type="date"></label>
+          <label title="Для аркушів лише з номером і сумою (без статусів), як «Лист 1 мама»">Рядки без статусу <select id="importDefaultStatus"><option value="ok">Виконано</option><option value="checking">Перевіряється</option></select></label>
+          <button id="importUrlBtn">Імпортувати</button>
+          <button id="importFileBtn" class="secondary">CSV-файл…</button>
+        </div>
+        <div id="importStatus" class="status"></div>
+      </div>
+      <div class="toolbar filters">
+        <label>Працівник <select id="fEmployee"><option value="">Усі</option></select></label>
+        <label>Період <select id="fPeriod"></select></label>
+        <label>Статус <select id="fStatus"><option value="">Усі</option></select></label>
+        <label class="grow">Пошук <input id="fSearch" type="search" placeholder="товар або номер"></label>
+        <button id="deleteSelected" class="danger secondary">Видалити вибрані</button>
+      </div>
+      <table id="ordersTable" class="grid fixed">
+        <colgroup><col style="width:36px"><col style="width:100px"><col style="width:100px"><col><col style="width:140px"><col style="width:90px"><col style="width:80px"><col style="width:118px"><col style="width:84px"></colgroup>
+        <thead><tr><th><input type="checkbox" id="selectAll"></th><th>Дата</th><th>Працівник</th><th>Товар</th><th>Номер</th><th class="num">Сума</th><th>Канал</th><th>Статус</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="ordersCount" class="hint"></div>
+    </section>
+
+    <!-- Працівники -->
+    <section id="tab-employees" class="tab">
+      <header>
+        <h1>Працівники</h1>
+        <div class="toolbar">
+          <input id="newEmployeeName" placeholder="Прізвище або ім'я">
+          <button id="addEmployee">Додати</button>
+        </div>
+      </header>
+      <p class="hint">Порожня ставка = загальна ставка з налаштувань. Видалення працівника видаляє і його замовлення.</p>
+      <table id="employeesTable" class="grid">
+        <thead><tr><th>Працівник</th><th class="num">Ставка, %</th><th class="num">Замовлень</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Налаштування -->
+    <section id="tab-settings" class="tab">
+      <header><h1>Налаштування</h1></header>
+      <div class="panel">
+        <div class="row">
+          <label>Загальна ставка, % від суми виконаних замовлень <input id="ratePercent" type="number" min="0" step="0.1"></label>
+          <button id="saveSettings">Зберегти</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Оновлення</h2>
+        <div class="row">
+          <span id="appVersion"></span>
+          <button id="checkUpdate" class="secondary">Перевірити оновлення</button>
+          <button id="installUpdate" class="hidden">Перезапустити й оновити</button>
+        </div>
+        <div id="updateStatus" class="status"></div>
+        <p class="hint">Застосунок сам перевіряє нові версії на GitHub при запуску. <a href="#" id="releasesLink">Усі версії</a></p>
+      </div>
+      <div class="panel">
+        <h2>Дані</h2>
+        <p class="hint">Усе зберігається в одному файлі: <code id="dataFile"></code> <a href="#" id="showDataFile">показати</a></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Модальне вікно замовлення -->
+  <div id="modal" class="modal hidden">
+    <form id="orderForm" class="modal-box">
+      <h2 id="orderFormTitle">Замовлення</h2>
+      <input type="hidden" name="id">
+      <label>Працівник <select name="employeeId"></select></label>
+      <label>Дата <input name="date" type="date" required></label>
+      <label>Товар <input name="product"></label>
+      <label>Номер ТТН / замовлення <input name="number"></label>
+      <label>Сума <input name="amount" type="number" step="0.01" min="0" required></label>
+      <label>Канал <input name="channel" list="channels"><datalist id="channels"><option>Rozetka</option><option>Пром 1</option><option>Пром 2</option><option>Пром 3</option><option>Епіцентр</option></datalist></label>
+      <label>Статус <select name="status"></select></label>
+      <div class="row right">
+        <button type="button" id="orderCancel" class="secondary">Скасувати</button>
+        <button type="submit">Зберегти</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
