@@ -31,6 +31,8 @@ function fakeFetch(log) {
     if (url.startsWith('https://merchant-api.epicentrm.com.ua')) return json({ items: [ep], next: null });
     if (url.startsWith('https://rz-delivery.rozetka.ua')) {
       if (url.endsWith('PRM-700000001')) return json({ data: { last_status: 60040, last_status_name: 'Відмова від одержання', last_status_date: '2026-08-17 14:19:43' } });
+      if (url.endsWith('RMP-700000003')) { log.push('rd3'); return log.filter((x) => x === 'rd3').length < 3 ? json({}, 429) : json({ data: { last_status: 60030, last_status_name: 'Видано', last_status_date: '2026-08-18 10:00:00' } }); }
+      if (url.endsWith('RMP-700000004')) return json({}, 429);
       return json({}, 404);
     }
     throw new Error('невідома адреса ' + url);
@@ -60,6 +62,10 @@ test('маркетплейси: ключі, дати, гроші, проблем
   assert.strictEqual(mp.problemByText('Відмова від одержання'), 'ОТКАЗ');
   assert.strictEqual(mp.problemByText('Відправлення повертається до відправника'), 'ВОЗВРАТ');
   assert.strictEqual(mp.problemByText('Скасовано'), 'ОТМЕНА');
+  assert.strictEqual(mp.problemByText('Не прийшов за замовленням'), 'ОТКАЗ');
+  assert.strictEqual(mp.problemByText('Клієнт передумав'), 'ОТМЕНА');
+  assert.strictEqual(mp.problemByText("Не вдалося зв'язатися"), 'ОТМЕНА');
+  assert.strictEqual(mp.problemByText('Заплановано передачу перевізникові'), '');
   assert.strictEqual(mp.problemByText('Прибув на відділення'), '');
   assert.strictEqual(mp.shiftDays('2026-03-01', -14), '2026-02-15');
 });
@@ -99,9 +105,14 @@ test('маркетплейси: помилка кабінету не зупин�
 
 test('Rozetka Delivery і перевірка кабінету', async () => {
   const log = [];
-  const rd = await mp.rozetkaDelivery(['PRM-700000001', 'PRM-700000002'], { fetch: fakeFetch(log) });
+  const waits = [];
+  const rd = await mp.rozetkaDelivery(['PRM-700000001', 'PRM-700000002', 'RMP-700000003', 'RMP-700000004'], { fetch: fakeFetch(log), sleep: async (ms) => { waits.push(ms); } });
   assert.deepStrictEqual({ found: rd.get('PRM-700000001').found, problem: rd.get('PRM-700000001').problem, date: rd.get('PRM-700000001').date }, { found: true, problem: 'ОТКАЗ', date: '2026-08-17' });
   assert.strictEqual(rd.get('PRM-700000002').found, false);
+  // 429 двічі, потім відповідь — повтори з паузами; суцільні 429 — HTTP 429 після трьох повторів
+  assert.deepStrictEqual({ found: rd.get('RMP-700000003').found, status: rd.get('RMP-700000003').status }, { found: true, status: 'Видано' });
+  assert.deepStrictEqual({ found: rd.get('RMP-700000004').found, status: rd.get('RMP-700000004').status }, { found: false, status: 'HTTP 429' });
+  assert.deepStrictEqual(waits, [250, 250, 2000, 5000, 250, 2000, 5000, 10000]);
   const t = await mp.testAccount(ACCOUNTS[0], { fetch: fakeFetch(log) });
   assert.strictEqual(t.ok, true);
   assert.match(t.message, /910828670/);

@@ -80,7 +80,9 @@ function problemByText(statusText) {
   if (!t) return '';
   if (/скасов|відмін|отмен|видален|cancel/.test(t)) return 'ОТМЕНА';
   if (/поверн|поверт|зворотн|припинено збер|возврат|возвращ|вернул|return/.test(t)) return 'ВОЗВРАТ';
-  if (/відмов|отказ|reject|refus/.test(t)) return 'ОТКАЗ';
+  if (/відмов|отказ|reject|refus|не прийшов за замовлен/.test(t)) return 'ОТКАЗ';
+  // Статуси Rozetka без відправлення: клієнт передумав, не вдалося зв'язатися, немає в наявності.
+  if (/передумав|не вдалося зв.язатися|немає в наявності|нет в наличии/.test(t)) return 'ОТМЕНА';
   return '';
 }
 
@@ -384,12 +386,24 @@ async function findOrders(pending, accounts, opts = {}) {
 }
 
 // Rozetka Delivery (PRM-…): публічний трекінг без ключа, лише статус.
+// Публічний трекінг обмежує частоту запитів (HTTP 429): між запитами пауза, на 429 — до трьох повторів із
+// зростанням очікування; opts.sleep підміняється в тестах.
+const RD_PAUSE_MS = 250, RD_RETRY_MS = [2000, 5000, 10000];
 async function rozetkaDelivery(ids, opts = {}) {
   const fetchFn = opts.fetch || globalThis.fetch;
+  const sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const out = new Map();
+  let first = true;
   for (const id of [...new Set(ids.filter(Boolean))]) {
     try {
-      const res = await fetchFn(RD_URL + encodeURIComponent(id), { headers: { Accept: 'application/json' }, redirect: 'follow' });
+      if (!first) await sleep(RD_PAUSE_MS);
+      first = false;
+      let res;
+      for (let attempt = 0; ; attempt++) {
+        res = await fetchFn(RD_URL + encodeURIComponent(id), { headers: { Accept: 'application/json' }, redirect: 'follow' });
+        if (res.status !== 429 || attempt >= RD_RETRY_MS.length) break;
+        await sleep(RD_RETRY_MS[attempt]);
+      }
       if (res.status === 404) { out.set(id, { found: false, status: 'посилку не знайдено' }); continue; }
       if (res.status !== 200) { out.set(id, { found: false, status: `HTTP ${res.status}` }); continue; }
       const json = await res.json();
