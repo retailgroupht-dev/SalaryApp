@@ -11,6 +11,21 @@ let store = null;
 let service = null;
 let api = null;
 let autoUpdater = null;
+let syncTimer = null;
+
+// Автоматичне оновлення: перший запуск за 20 с після старту, далі кожні settings.auto.hours годин.
+function runSync(reason) {
+  if (!service || service.syncing) return;
+  service.autoSync().then((r) => {
+    if (win && !win.isDestroyed()) win.webContents.send('sync:done', Object.assign({ reason }, r));
+  }).catch((e) => console.log('sync:', e.message));
+}
+function scheduleSync() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  const a = service.data.settings.auto || {};
+  if (!a.enabled || process.env.SALARY_SMOKE_SHOT) return;
+  syncTimer = setInterval(() => runSync('timer'), (Number(a.hours) || 6) * 3600 * 1000);
+}
 
 const RELEASES_URL = 'https://github.com/retailgroupht-dev/SalaryApp/releases';
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
@@ -103,6 +118,7 @@ function registerIpc() {
   ipcMain.handle('settings:save', async (_e, settings) => {
     const s = service.saveSettings(settings);
     if (settings.api) await api.apply(s.api);
+    if (settings.auto) scheduleSync();
     return s;
   });
 
@@ -115,6 +131,7 @@ function registerIpc() {
   ipcMain.handle('import:paste', async (_e, text) => Object.assign(await service.addPasted(text), { data: service.data }));
   ipcMain.handle('shipments:collect', (_e, p) => service.collectShipments(p));
   ipcMain.handle('shipments:add', (_e, items) => Object.assign(service.addShipments(items), { data: service.data }));
+  ipcMain.handle('sync:run', async () => Object.assign(await service.autoSync(), { data: service.data }));
   ipcMain.handle('accounts:test', () => service.testAccounts());
   ipcMain.handle('np:add', async (_e, p) => Object.assign(await service.addByTtn(p), { data: service.data }));
   ipcMain.handle('np:refresh', async (_e, p) => Object.assign(await service.refreshFromNp(p), { data: service.data }));
@@ -213,6 +230,8 @@ app.whenReady().then(async () => {
   createWindow();
   setupUpdater();
   await api.apply(store.data.settings.api);
+  scheduleSync();
+  if (store.data.settings.auto.enabled && !process.env.SALARY_SMOKE_SHOT) setTimeout(() => runSync('startup'), 20000);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 

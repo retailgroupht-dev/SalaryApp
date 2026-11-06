@@ -47,6 +47,12 @@ class Service {
       a.token = String(a.token || '').trim();
       s.api = a;
     }
+    if (patch.auto) {
+      const a = Object.assign({}, s.auto, patch.auto);
+      a.enabled = !!a.enabled;
+      a.hours = [1, 3, 6, 12, 24].includes(Number(a.hours)) ? Number(a.hours) : 6;
+      s.auto = { enabled: a.enabled, hours: a.hours, lastRun: s.auto.lastRun || '', lastResult: s.auto.lastResult || '' };
+    }
     if (patch.accounts) {
       const old = new Map(s.accounts.map((a) => [a.kind + '|' + a.token, a.name]));
       s.accounts = this.cleanAccounts(patch.accounts);
@@ -450,6 +456,46 @@ class Service {
     }
     this.store.save();
     return { added, updated };
+  }
+
+  // ---------- автоматичне оновлення ----------
+  // Поточний і попередній місяць: зібрати відправлення з кабінетів кожного працівника й додати
+  // в замовлення, потім перевірити все зі статусом «Перевіряється». Паралельні запуски не допускаються.
+  async autoSync() {
+    if (this.syncing) return { skipped: true, message: 'Уже виконується' };
+    this.syncing = true;
+    const res = { collected: 0, added: 0, updated: 0, checked: 0, changed: 0, errors: [], months: [] };
+    try {
+      const d = new Date();
+      const cur = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      d.setMonth(d.getMonth() - 1);
+      const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      res.months = [prev, cur];
+      for (const period of res.months) {
+        for (const e of this.data.employees) {
+          if (!this.accountsFor(e.id).some((a) => a.kind !== 'np')) continue;
+          try {
+            const c = await this.collectShipments({ employee: e.id, period });
+            res.collected += c.items.length;
+            res.errors.push(...c.errors);
+            const a = this.addShipments(c.items);
+            res.added += a.added; res.updated += a.updated;
+          } catch (err) { res.errors.push(`${e.name} ${period}: ${err.message || err}`); }
+        }
+        try {
+          const r = await this.refreshFromNp({ period, status: 'checking' });
+          res.checked += r.checked; res.changed += r.updated; res.errors.push(...r.errors);
+        } catch (err) { res.errors.push(`перевірка ${period}: ${err.message || err}`); }
+      }
+    } finally {
+      this.syncing = false;
+      const when = new Date();
+      const stamp = `${todayLocal()} ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
+      this.data.settings.auto.lastRun = stamp;
+      this.data.settings.auto.lastResult = `зібрано ${res.collected}, додано ${res.added}, оновлено ${res.updated + res.changed}` + (res.errors.length ? `, помилок ${res.errors.length}` : '');
+      this.store.save();
+    }
+    return res;
   }
 
   // ---------- розрахунок і експорт ----------

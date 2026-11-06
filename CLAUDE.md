@@ -30,6 +30,8 @@
   Вкладка «Відправлення» (`collectShipments`): усі замовлення кабінетів за місяць (`marketplaces.listOrders`:
   Prom date_from/to, Rozetka created_from/to, Епіцентр курсор до дати) + звірка з НП, кнопка додає в замовлення.
   Вставка з таблиці (`addPasted`): три колонки товар/ТТН/працівник у будь-якому порядку.
+  Автооновлення (`autoSync`, `settings.auto {enabled, hours}`): через 20 с після старту й кожні N годин — збір
+  з кабінетів за поточний і попередній місяць + перевірка «Перевіряється»; у smoke-режимі не запускається.
 - `src/store.js` — усі дані в одному `data.json` у теці користувача
   (Win `%APPDATA%\SalaryApp\`, Mac `~/Library/Application Support/SalaryApp/`; дані зі старої теки
   «Розрахунок зарплат» переносяться при першому запуску). Іконка — `build/icon.png` (генерує `build/make-icon.js`).
@@ -51,7 +53,7 @@
 `DELETE /api/orders/:id`, `POST /api/import` (`{employee, url}` або `{employee, csv}`),
 `GET /api/track?numbers=` (подивитися), `POST /api/track` (`{employee, numbers}` — додати за номером),
 `POST /api/track/refresh` (`{ids}` або фільтри, `withDate`) — перевірити наявні,
-`POST /api/import/paste` (`{text}`), `GET /api/shipments?employee=&period=`, `POST /api/shipments/add`,
+`POST /api/import/paste` (`{text}`), `GET /api/shipments?employee=&period=`, `POST /api/shipments/add`, `POST /api/sync`,
 `POST /api/settings/accounts/import` (`{script}`), `GET /api/settings/accounts/test`,
 `GET /api/export?format=xlsx|csv&period=`, `GET|PUT /api/data` (резервна копія),
 `GET|PUT /api/settings`, `GET /api/docs`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.

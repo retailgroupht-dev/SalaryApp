@@ -155,6 +155,13 @@ curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track/refre
 - \`GET /api/shipments?employee=Настя&period=2026-11\` — лише подивитися: \`{items: [{employeeId, employee, number, ttn, orderId, channel, kind, product, amount, date, status, problem, mpStatus, note, inBase}], errors}\`. Без \`employee\` — усі працівники, але замовлення спільних кабінетів (ключ без працівника) показуються лише для одного вибраного працівника.
 - \`POST /api/shipments/add\` з \`{"employee": "Настя", "period": "2026-11"}\` — зібрати й додати в замовлення (повтори за «працівник + номер» оновлюються). Відповідь \`{added, updated, collected, errors}\`.
 
+### Автоматичне оновлення
+
+\`POST /api/sync\` — те саме, що робить застосунок за розкладом (Налаштування → Автоматичне оновлення): за поточний
+і попередній місяць зібрати відправлення з кабінетів кожного працівника й додати в замовлення, потім перевірити все зі
+статусом \`checking\`. Відповідь \`{months, collected, added, updated, checked, changed, errors}\`; якщо вже виконується — \`{skipped: true}\`.
+Розклад: \`PUT /api/settings\` з \`{"auto": {"enabled": true, "hours": 6}}\` (1, 3, 6, 12 або 24 години).
+
 ### Імпорт аркуша
 
 \`POST /api/import\` з одним із варіантів тіла:

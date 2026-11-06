@@ -226,6 +226,15 @@ test('API: вставка з таблиці, відправлення з каб�
     r = await t.call('POST', '/api/shipments/add', { employee: 'Настя', period: '2026-08' });
     assert.deepStrictEqual({ collected: r.body.collected, added: r.body.added, updated: r.body.updated }, { collected: 1, added: 0, updated: 0 });
 
+    // автоматичне оновлення: поточний і попередній місяць (у підробці Prom замовлення серпневе → нічого нового), статус у налаштуваннях
+    r = await t.call('PUT', '/api/settings', { auto: { enabled: false, hours: 5 } });
+    assert.deepStrictEqual({ enabled: r.body.auto.enabled, hours: r.body.auto.hours }, { enabled: false, hours: 6 });
+    r = await t.call('POST', '/api/sync');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.months.length, 2);
+    assert.deepStrictEqual({ added: r.body.added, errors: r.body.errors }, { added: 0, errors: [] });
+    assert.match(t.service.data.settings.auto.lastResult, /зібрано 0/);
+
     // імпорт ключів зі скрипта для працівника; той самий ключ у другого → спільний
     r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];\nconst PROM_ACCOUNTS = [\n  { name: 'Пром 1', token: 'pa' },\n  { name: 'Пром 2', token: 'pb' }\n];", employee: 'Настя' });
     assert.strictEqual(r.body.accounts.find((a) => a.kind === 'rozetka').employeeId, t.service.resolveEmployee('Настя').id);

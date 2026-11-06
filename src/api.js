@@ -20,6 +20,7 @@ const ROUTES_DOC = [
   ['POST', '/api/import/paste', '{text} — рядки «товар ⇥ ТТН ⇥ працівник», скопійовані з таблиці; пошук за номерами'],
   ['GET', '/api/shipments?employee=&period=YYYY-MM', 'замовлення з кабінетів маркетплейсів за місяць (без запису)'],
   ['POST', '/api/shipments/add', '{employee?, period} — зібрати з кабінетів і додати в замовлення'],
+  ['POST', '/api/sync', 'автоматичне оновлення зараз: зібрати з кабінетів і перевірити за поточний і попередній місяць'],
   ['GET', '/api/track?numbers=a,b', 'пошук за номерами (НП + маркетплейси) без запису в базу'],
   ['POST', '/api/track', '{employee, numbers: [...] | "…", channel?} — додати/оновити замовлення за номерами'],
   ['POST', '/api/track/refresh', '{ids?} або {employee?, period?, status?, q?}, withDate? — перевірити наявні замовлення'],
@@ -27,7 +28,7 @@ const ROUTES_DOC = [
   ['GET', '/api/data', 'уся база (резервна копія JSON)'],
   ['PUT', '/api/data', 'замінити базу даними з резервної копії'],
   ['GET', '/api/settings', 'налаштування'],
-  ['PUT', '/api/settings', '{ratePercent?, accounts?: [{kind, name, token, employeeId?}]} — ставка, кабінети'],
+  ['PUT', '/api/settings', '{ratePercent?, accounts?, auto?: {enabled, hours}} — ставка, кабінети, автооновлення'],
   ['POST', '/api/settings/accounts/import', '{script, employee?} — ключі з тексту Apps Script таблиці'],
   ['GET', '/api/settings/accounts/test', 'перевірити всі кабінети'],
   ['GET', '/api/docs', 'ця документація у Markdown (?download=1 — як файл)'],
@@ -99,6 +100,7 @@ function createApi(service, appInfo) {
       }
       if (m === 'POST' && p === '/api/track') return send(res, 200, await service.addByTtn(json()));
       if (m === 'POST' && p === '/api/track/refresh') return send(res, 200, await service.refreshFromNp(json()));
+      if (m === 'POST' && p === '/api/sync') return send(res, 200, await service.autoSync());
       if (m === 'POST' && p === '/api/import/paste') return send(res, 200, await service.addPasted((json() || {}).text));
       if (m === 'GET' && p === '/api/shipments') return send(res, 200, await service.collectShipments({ employee: q.employee, period: q.period }));
       if (m === 'POST' && p === '/api/shipments/add') {
@@ -125,7 +127,7 @@ function createApi(service, appInfo) {
         return send(res, 200, Buffer.from(md, 'utf8'), h);
       }
       if (m === 'GET' && p === '/api/settings') return send(res, 200, service.data.settings);
-      if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, accounts: b.accounts })); }
+      if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, accounts: b.accounts, auto: b.auto })); }
       if (m === 'POST' && p === '/api/settings/accounts/import') { const b = json() || {}; return send(res, 200, await service.importAccountsFromScript(b.script, b.employee)); }
       if (m === 'GET' && p === '/api/settings/accounts/test') return send(res, 200, await service.testAccounts());
       return send(res, 404, { error: 'Невідомий маршрут', routes: ROUTES_DOC });

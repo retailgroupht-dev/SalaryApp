@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('api', {
   importPaste: (text) => ipcRenderer.invoke('import:paste', text),
   shipmentsCollect: (p) => ipcRenderer.invoke('shipments:collect', p),
   shipmentsAdd: (items) => ipcRenderer.invoke('shipments:add', items),
+  syncRun: () => ipcRenderer.invoke('sync:run'),
+  onSyncDone: (cb) => ipcRenderer.on('sync:done', (_e, r) => cb(r)),
   accountsTest: () => ipcRenderer.invoke('accounts:test'),
   importUrl: (p) => ipcRenderer.invoke('import:url', p),
   importFile: (p) => ipcRenderer.invoke('import:file', p),

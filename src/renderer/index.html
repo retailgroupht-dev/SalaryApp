@@ -150,6 +150,17 @@
         </div>
       </div>
       <div class="panel">
+        <h2>Автоматичне оновлення</h2>
+        <p class="hint">Застосунок сам збирає відправлення з кабінетів за поточний і попередній місяць, додає їх у замовлення і перевіряє все зі статусом «Перевіряється». Запускається через 20 секунд після старту й далі за розкладом.</p>
+        <div class="row">
+          <label class="check"><span><input id="autoEnabled" type="checkbox"> Увімкнути</span></label>
+          <label>Кожні <select id="autoHours"><option value="1">1 годину</option><option value="3">3 години</option><option value="6">6 годин</option><option value="12">12 годин</option><option value="24">24 години</option></select></label>
+          <button id="saveAuto">Зберегти</button>
+          <button id="syncNow" class="secondary">Оновити зараз</button>
+        </div>
+        <div id="autoStatus" class="status"></div>
+      </div>
+      <div class="panel">
         <h2>Кабінети: Нова Пошта і маркетплейси</h2>
         <p class="hint">Ключі API кабінетів, у яких застосунок шукає замовлення за номером: звідти беруться статус, сума, дата продажу й канал (назва кабінету). Нова Пошта без ключа віддає лише статус і дати. Найпростіше — вставити код Apps Script з таблиці (Розширення → Apps Script): ключі з нього підхопляться самі. Кабінет можна прив’язати до працівника: тоді його замовлення шукаються лише там (+ у спільних). Один і той самий ключ у двох працівників стає спільним.</p>
         <table id="accountsTable" class="grid">

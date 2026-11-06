@@ -147,7 +147,18 @@ function renderSettings() {
   $('#apiPort').value = a.port || 8765;
   $('#apiToken').value = a.token || '';
   renderAccounts();
+  const au = data.settings.auto || {};
+  $('#autoEnabled').checked = !!au.enabled;
+  $('#autoHours').value = String(au.hours || 6);
+  renderAutoStatus();
   renderApiStatus();
+}
+
+function renderAutoStatus(extra) {
+  const au = data.settings.auto || {};
+  const el = $('#autoStatus');
+  el.textContent = extra || (au.lastRun ? `Останнє оновлення ${au.lastRun}: ${au.lastResult}` : (au.enabled ? 'Ще не виконувалось' : 'Вимкнено'));
+  el.className = 'status ' + (extra ? '' : (au.lastResult && au.lastResult.includes('помилок') ? 'err' : 'ok'));
 }
 
 function renderAccounts(tests) {
@@ -468,6 +479,17 @@ function bind() {
   });
   const accStatus = (msg, cls) => { const el = $('#accStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
   const saveAccounts = async (list) => { try { data.settings = await window.api.saveSettings({ accounts: list }); renderAccounts(); } catch (e) { accStatus('Помилка: ' + errMsg(e), 'err'); } };
+  $('#saveAuto').addEventListener('click', async () => {
+    try { data.settings = await window.api.saveSettings({ auto: { enabled: $('#autoEnabled').checked, hours: Number($('#autoHours').value) } }); renderAutoStatus(); }
+    catch (e) { alert(errMsg(e)); }
+  });
+  $('#syncNow').addEventListener('click', async () => {
+    renderAutoStatus('Збираю з кабінетів і перевіряю… (до кількох хвилин)'); $('#syncNow').disabled = true;
+    try { const r = await window.api.syncRun(); await reload(r.data); if (r.errors && r.errors.length) renderAutoStatus(`${data.settings.auto.lastResult}. Помилки: ${r.errors.join('; ')}`); }
+    catch (e) { renderAutoStatus('Помилка: ' + errMsg(e)); }
+    finally { $('#syncNow').disabled = false; }
+  });
+  window.api.onSyncDone(async () => { await reload(); });
   $('#accAdd').addEventListener('click', async () => {
     const token = $('#accToken').value.trim();
     if (!token) return accStatus('Вставте ключ', 'err');
