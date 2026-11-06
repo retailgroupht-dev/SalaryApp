@@ -158,13 +158,16 @@ function mergeOrders(existing, incoming, nextId) {
 // ---------- Розрахунок ----------
 function monthOf(date) { return (date || '').slice(0, 7); }
 
-// period: 'YYYY-MM' або '' (увесь час). Повертає рядок на кожного працівника.
-function calcSalary(data, period) {
+// Два набори замовлень: 'auto' — веде програма (кабінети маркетплейсів), 'manual' — з таблиці або вставки.
+const SOURCE = { auto: 'Авто (кабінети)', manual: 'Таблиця (вручну)' };
+
+// period: 'YYYY-MM' або '' (увесь час); source: 'auto' | 'manual' | '' (обидва). Повертає рядок на кожного працівника.
+function calcSalary(data, period, source) {
   const rate = Number(data.settings.ratePercent) || 0;
   const rows = [];
   for (const e of data.employees) {
     const r = e.ratePercent == null || e.ratePercent === '' ? rate : Number(e.ratePercent);
-    const orders = data.orders.filter((o) => o.employeeId === e.id && (!period || monthOf(o.date) === period));
+    const orders = data.orders.filter((o) => o.employeeId === e.id && (!period || monthOf(o.date) === period) && (!source || o.source === source));
     const done = orders.filter((o) => o.status === 'ok');
     const sumDone = round2(done.reduce((s, o) => s + (Number(o.amount) || 0), 0));
     rows.push({
@@ -306,6 +309,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  parseCsv, toCsv, sheetExportUrl, parseAmount, statusFromText, mapSheetRow, importRows, mergeOrders,
+  SOURCE, parseCsv, toCsv, sheetExportUrl, parseAmount, statusFromText, mapSheetRow, importRows, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };

@@ -2,10 +2,11 @@
 // Логіка вікна. Усі дані приходять з головного процесу через window.api.
 
 const STATUS = { ok: 'Виконано', refused: 'Відмова', cancelled: 'Скасовано', nodata: 'Немає даних', checking: 'Перевіряється' };
+const SOURCE = { auto: 'авто (кабінети)', manual: 'таблиця (вручну)' };
 const $ = (sel) => document.querySelector(sel);
 let data = { settings: {}, employees: [], orders: [] };
 let info = {};
-const state = { salaryPeriod: null, detailEmployee: null, selected: new Set(), formNp: null, shipments: [], shSelected: new Set() };
+const state = { salaryPeriod: null, salarySource: 'auto', ordersSource: 'auto', detailEmployee: null, selected: new Set(), formNp: null, formKind: '', formSource: 'manual', shipments: [], shSelected: new Set() };
 // Підпис до статусу: що сказали джерела (Нова Пошта, маркетплейс, Rozetka Delivery).
 // ТТН і № замовлення: клік копіює в буфер; без ТТН — «—».
 const copyCell = (v, title) => (v ? `<span class="copy" data-copy="${esc(v)}" title="${esc(title || v)}. Натисніть, щоб скопіювати">${esc(v)}</span>` : '<span class="muted">—</span>');
@@ -53,7 +54,7 @@ function calcRows(period) {
   const rate = Number(data.settings.ratePercent) || 0;
   return data.employees.map((e) => {
     const r = e.ratePercent == null || e.ratePercent === '' ? rate : Number(e.ratePercent);
-    const orders = data.orders.filter((o) => o.employeeId === e.id && (!period || monthOf(o.date) === period));
+    const orders = data.orders.filter((o) => o.employeeId === e.id && o.source === state.salarySource && (!period || monthOf(o.date) === period));
     const cnt = (s) => orders.filter((o) => o.status === s).length;
     const sumDone = orders.filter((o) => o.status === 'ok').reduce((a, o) => a + (Number(o.amount) || 0), 0);
     const round2 = (n) => Math.round(n * 100) / 100;
@@ -63,6 +64,8 @@ function calcRows(period) {
 
 function renderSalary() {
   state.salaryPeriod = fillPeriodSelect($('#salaryPeriod'), state.salaryPeriod, 'Увесь час');
+  state.salarySource = SOURCE[data.settings.salarySource] ? data.settings.salarySource : 'auto';
+  $('#salarySource').value = state.salarySource;
   const rows = calcRows(state.salaryPeriod);
   $('#salaryTable tbody').innerHTML = rows.map((x) => `
     <tr class="clickable ${state.detailEmployee === x.e.id ? 'selected' : ''}" data-id="${x.e.id}">
@@ -80,9 +83,9 @@ function renderSalaryDetail() {
   const id = state.detailEmployee;
   if (!id || !data.employees.some((e) => e.id === id)) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const orders = data.orders.filter((o) => o.employeeId === id && (!state.salaryPeriod || monthOf(o.date) === state.salaryPeriod))
+  const orders = data.orders.filter((o) => o.employeeId === id && o.source === state.salarySource && (!state.salaryPeriod || monthOf(o.date) === state.salaryPeriod))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
-  $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'} (${orders.length})`;
+  $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'}, ${SOURCE[state.salarySource]} (${orders.length})`;
   box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
     <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
     || '<tr><td colspan="7" class="hint">Замовлень немає</td></tr>';
@@ -99,8 +102,9 @@ function renderOrders() {
   fillPeriodSelect(fPeriodSel, curPeriod, 'Усі'); fPeriodSel.dataset.set = '1';
   const fStatus = $('#fStatus');
   if (fStatus.options.length === 1) fStatus.innerHTML += Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  $('#ordersTitle').textContent = `Замовлення: ${SOURCE[state.ordersSource]}`;
   const emp = Number($('#fEmployee').value) || null, period = fPeriodSel.value, st = fStatus.value, q = $('#fSearch').value.trim().toLowerCase();
-  const list = data.orders.filter((o) => (!emp || o.employeeId === emp) && (!period || monthOf(o.date) === period) && (!st || o.status === st)
+  const list = data.orders.filter((o) => o.source === state.ordersSource && (!emp || o.employeeId === emp) && (!period || monthOf(o.date) === period) && (!st || o.status === st)
     && (!q || (o.product || '').toLowerCase().includes(q) || (o.number || '').toLowerCase().includes(q) || (o.orderId || '').toLowerCase().includes(q)))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
@@ -108,8 +112,8 @@ function renderOrders() {
     <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
     <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td>
     <td><button class="small secondary edit" data-id="${o.id}">Змінити</button></td></tr>`).join('')
-    || '<tr><td colspan="10" class="hint">Замовлень немає. Імпортуйте таблицю або додайте вручну.</td></tr>';
-  $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (усього в базі ${data.orders.length})`;
+    || `<tr><td colspan="10" class="hint">${state.ordersSource === 'auto' ? 'Замовлень немає. Зберіть їх з кабінетів у вкладці «Відправлення» або зачекайте на автоматичне оновлення.' : 'Замовлень немає. Імпортуйте аркуш таблиці або вставте рядки вище.'}</td></tr>`;
+  $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (у наборі ${data.orders.filter((o) => o.source === state.ordersSource).length}, усього в базі ${data.orders.length})`;
   const urlRec = (data.settings.sheetUrls || []).find((u) => u.employeeId === Number($('#importEmployee').value));
   if (urlRec && !$('#importUrl').value) $('#importUrl').value = urlRec.url;
 }
@@ -118,8 +122,9 @@ function openOrderForm(order) {
   const f = $('#orderForm');
   fillEmployeeSelect(f.employeeId, false);
   f.status.innerHTML = Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-  const o = order || { id: '', employeeId: Number($('#fEmployee').value) || (data.employees[0] || {}).id, date: today(), product: '', number: '', orderId: '', kind: '', amount: '', channel: '', status: 'ok' };
-  $('#orderFormTitle').textContent = order ? 'Змінити замовлення' : 'Нове замовлення';
+  const o = order || { id: '', employeeId: Number($('#fEmployee').value) || (data.employees[0] || {}).id, date: today(), product: '', number: '', orderId: '', kind: '', source: state.ordersSource, amount: '', channel: '', status: 'ok' };
+  state.formSource = o.source || state.ordersSource;
+  $('#orderFormTitle').textContent = `${order ? 'Змінити' : 'Нове'} замовлення — ${SOURCE[state.formSource]}`;
   f.id.value = o.id; f.employeeId.value = o.employeeId; f.date.value = o.date; f.product.value = o.product;
   f.number.value = o.number; f.orderId.value = o.orderId || ''; f.amount.value = o.amount; f.channel.value = o.channel; f.status.value = o.status;
   state.formNp = o.track || null; state.formKind = o.kind || '';
@@ -274,8 +279,10 @@ function renderAll() { renderSalary(); renderOrders(); renderShipments(); render
 async function reload(d) { data = d || await window.api.getData(); renderAll(); }
 
 function showTab(name) {
+  const section = SOURCE[name] ? 'orders' : name;
+  if (SOURCE[name]) { state.ordersSource = name; document.body.dataset.source = name; state.selected.clear(); renderOrders(); }
   document.querySelectorAll('.nav').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + name));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + section));
 }
 
 function bind() {
@@ -283,14 +290,23 @@ function bind() {
 
   // Зарплата
   $('#salaryPeriod').addEventListener('change', (e) => { state.salaryPeriod = e.target.value; renderSalary(); });
+  $('#salarySource').addEventListener('change', async (e) => { data.settings = await window.api.saveSettings({ salarySource: e.target.value }); renderSalary(); });
   $('#salaryTable tbody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-id]'); if (!tr) return;
     const id = Number(tr.dataset.id);
     state.detailEmployee = state.detailEmployee === id ? null : id;
     renderSalary();
   });
-  $('#exportXlsx').addEventListener('click', async () => { const p = await window.api.exportFile({ format: 'xlsx', period: state.salaryPeriod }); if (p) alert('Збережено: ' + p); });
-  $('#exportCsv').addEventListener('click', async () => { const p = await window.api.exportFile({ format: 'csv', period: state.salaryPeriod }); if (p) alert('Збережено: ' + p); });
+  $('#exportXlsx').addEventListener('click', async () => { const p = await window.api.exportFile({ format: 'xlsx', period: state.salaryPeriod, source: state.salarySource }); if (p) alert('Збережено: ' + p); });
+  $('#exportCsv').addEventListener('click', async () => { const p = await window.api.exportFile({ format: 'csv', period: state.salaryPeriod, source: state.salarySource }); if (p) alert('Збережено: ' + p); });
+  $('#compareBtn').addEventListener('click', async () => {
+    const period = $('#fPeriod').value;
+    if (!period) return alert('Виберіть період у фільтрі «Період» — звірка робиться за місяць');
+    const r = await window.api.compareFile({ format: 'xlsx', period });
+    if (!r) return;
+    const t = r.totals;
+    alert(`Звірка за ${monthLabel(period)}: збіг ${t['збіг'] || 0}, лише в авто ${t['лише в авто'] || 0}, лише в таблиці ${t['лише в таблиці'] || 0}, різний статус ${t['різний статус'] || 0}, різна сума ${t['різна сума'] || 0}, різний працівник ${t['різний працівник'] || 0}.\nЗбережено: ${r.path}`);
+  });
 
   // Замовлення
   ['#fEmployee', '#fPeriod', '#fStatus'].forEach((s) => $(s).addEventListener('change', renderOrders));
@@ -342,9 +358,10 @@ function bind() {
     } catch (e) { ttnStatus('Помилка: ' + errMsg(e), 'err'); }
     finally { $('#ttnAddBtn').disabled = false; }
   });
+  const refreshStatus = (msg, cls) => { const el = $('#refreshStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); el.style.margin = '0'; };
   $('#refreshNp').addEventListener('click', async () => {
-    const p = { employee: $('#fEmployee').value || undefined, period: $('#fPeriod').value || undefined, status: $('#fStatus').value || undefined, q: $('#fSearch').value.trim() || undefined, withDate: $('#refreshWithDate').checked };
-    ttnStatus('Перевіряю в Новій Пошті та на маркетплейсах…');
+    const p = { source: state.ordersSource, employee: $('#fEmployee').value || undefined, period: $('#fPeriod').value || undefined, status: $('#fStatus').value || undefined, q: $('#fSearch').value.trim() || undefined, withDate: $('#refreshWithDate').checked };
+    refreshStatus('Перевіряю в Новій Пошті та на маркетплейсах…');
     $('#refreshNp').disabled = true;
     try {
       const r = await window.api.npRefresh(p);
@@ -352,9 +369,9 @@ function bind() {
       if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.length}.`);
       if (r.skipped) parts.push(`Без номера (пропущено): ${r.skipped}.`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
-      ttnStatus(parts.join(' '), 'ok');
+      refreshStatus(parts.join(' '), 'ok');
       reload(r.data);
-    } catch (e) { ttnStatus('Помилка: ' + errMsg(e), 'err'); }
+    } catch (e) { refreshStatus('Помилка: ' + errMsg(e), 'err'); }
     finally { $('#refreshNp').disabled = false; }
   });
   $('#orderTrack').addEventListener('click', async () => {
@@ -448,7 +465,7 @@ function bind() {
   $('#orderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, orderId: f.orderId.value, kind: state.formKind, amount: f.amount.value, channel: f.channel.value, status: f.status.value, track: state.formNp };
+    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, orderId: f.orderId.value, kind: state.formKind, source: state.formSource, amount: f.amount.value, channel: f.channel.value, status: f.status.value, track: state.formNp };
     $('#modal').classList.add('hidden');
     reload(await window.api.saveOrder(o));
   });
@@ -572,6 +589,7 @@ function bind() {
 (async function init() {
   info = await window.api.appInfo();
   $('#versionLabel').textContent = `v${info.version}${info.packaged ? '' : ' (розробка)'}`;
+  document.body.dataset.source = state.ordersSource;
   bind();
   await reload();
 })();

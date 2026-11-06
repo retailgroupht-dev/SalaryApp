@@ -23,13 +23,20 @@
 
 **Працівник** — `{id, name, ratePercent}`. `ratePercent` порожнє (`null`) = загальна ставка з налаштувань.
 
-**Замовлення** — `{id, employeeId, product, number, orderId, kind, amount, channel, status, date, track}`:
+**Два набори замовлень.** Кожне замовлення належить одному з наборів (`source`):
+`auto` — веде програма сама (збір із кабінетів Prom / Rozetka / Епіцентр, автоматичне оновлення);
+`manual` — з реальних даних (імпорт аркуша Google Таблиці, вставлені рядки, додані за номером або руками).
+Набори не змішуються: повтори зливаються лише всередині свого набору. Зарплата рахується за одним набором
+(`source` у запиті або `salarySource` у налаштуваннях, типово `auto`), а `GET /api/compare` звіряє їх між собою.
+
+**Замовлення** — `{id, employeeId, product, number, orderId, kind, source, amount, channel, status, date, track}`:
 
 | Поле | Опис |
 |---|---|
 | `employee` або `employeeId` | при створенні: id **або ім’я** працівника (регістр не важливий) |
 | `number` | ТТН (порожньо, якщо відправлення ще не створено або замовлення скасовано). Повтори зливаються за ТТН (також за кодом посилки всередині номера) або за `kind` + `orderId` |
 | `orderId`, `kind` | № замовлення в кабінеті та кабінет (`rozetka`, `prom`, `epicentr`); заповнюються автоматично з кабінетів |
+| `source` | набір: `auto` або `manual` (типово `manual` для записів, створених через API чи руками) |
 | `amount` | сума, число |
 | `product` | назва товару (необов’язково) |
 | `channel` | `Rozetka`, `Пром 1`…`Пром 3`, `Епіцентр` або порожньо |
@@ -51,8 +58,8 @@ curl "http://127.0.0.1:8765/api/health"
 
 ### Розрахунок зарплати
 
-`GET /api/salary?period=YYYY-MM` — за місяць; без `period` — за весь час.
-Відповідь: `{period, ratePercent, rows: [{employeeId, name, ratePercent, total, done, refused, cancelled, nodata, checking, sumDone, salary}], totals: {total, done, sumDone, salary}}`.
+`GET /api/salary?period=YYYY-MM&source=auto|manual` — за місяць; без `period` — за весь час; без `source` — набір із налаштувань.
+Відповідь: `{period, source, ratePercent, rows: [{employeeId, name, ratePercent, total, done, refused, cancelled, nodata, checking, sumDone, salary}], totals: {total, done, sumDone, salary}}`.
 
 ```bash
 curl "http://127.0.0.1:8765/api/salary?period=2026-11"
@@ -60,11 +67,24 @@ curl "http://127.0.0.1:8765/api/salary?period=2026-11"
 
 ### Файл розрахунку
 
-`GET /api/export?format=xlsx|csv&period=YYYY-MM` — той самий файл, що з кнопки «Експорт»:
-аркуш «Зарплата» (підсумок на працівника) і «Замовлення» (усі замовлення періоду).
+`GET /api/export?format=xlsx|csv&period=YYYY-MM&source=auto|manual` — той самий файл, що з кнопки «Експорт»:
+аркуш «Зарплата» (підсумок на працівника) і «Замовлення» (усі замовлення періоду з вибраного набору).
 
 ```bash
-curl -o зарплата-2026-11.xlsx "http://127.0.0.1:8765/api/export?format=xlsx&period=2026-11"
+curl -o зарплата-2026-11.xlsx "http://127.0.0.1:8765/api/export?format=xlsx&period=2026-11&source=auto"
+```
+
+### Звірка авто / таблиця
+
+`GET /api/compare?period=YYYY-MM&employee=` — кожне замовлення періоду в парі: що каже програма (`auto`) і що в таблиці (`manual`).
+Пара шукається за ТТН (або кодом посилки всередині номера; без ТТН — за № замовлення), записи таблиці — серед усіх місяців, бо їхня дата — день імпорту.
+Відповідь `{period, rows: [{result, number, orderId, product, date, autoEmployee, manualEmployee, autoChannel, manualChannel, autoAmount, manualAmount, autoStatus, manualStatus}], totals, match, differ}`;
+`result` — `збіг`, `лише в авто`, `лише в таблиці`, `різний працівник`, `різний статус`, `різна сума`.
+З `&format=xlsx|csv` — той самий файл, що з кнопки «Звірка авто/таблиця…» (аркуші «Звірка» і «Підсумок»).
+
+```bash
+curl "http://127.0.0.1:8765/api/compare?period=2026-11"
+curl -o звірка-2026-11.xlsx "http://127.0.0.1:8765/api/compare?period=2026-11&format=xlsx"
 ```
 
 ### Працівники
@@ -79,8 +99,8 @@ curl -X POST -H "Content-Type: application/json" "http://127.0.0.1:8765/api/empl
 
 ### Замовлення
 
-- `GET /api/orders?employee=&period=&status=&q=` — фільтри необов’язкові: працівник (id або ім’я), місяць `YYYY-MM`, статус, пошук по товару чи номеру.
-- `POST /api/orders` — один об’єкт або масив. Запис **з `id`** замінюється повністю; **без `id`** зливається за «працівник + номер»: якщо такий номер уже є, оновлюються статус, сума й канал, інакше додається новий. Повторна відправка того самого пакета не плодить дублікатів. Відповідь `{added, updated, parsed}`.
+- `GET /api/orders?employee=&period=&status=&q=&source=` — фільтри необов’язкові: працівник (id або ім’я), місяць `YYYY-MM`, статус, пошук по товару, ТТН чи № замовлення, набір `auto|manual`.
+- `POST /api/orders` — один об’єкт або масив. Запис **з `id`** замінюється повністю; **без `id`** зливається за «працівник + номер» усередині свого набору (`source`, типово `manual`): якщо такий номер уже є, оновлюються статус, сума й канал, інакше додається новий. Повторна відправка того самого пакета не плодить дублікатів. Відповідь `{added, updated, parsed}`.
 - `DELETE /api/orders/:id` → `{deleted}`.
 
 ```bash
@@ -112,8 +132,8 @@ curl -X POST -H "Content-Type: application/json" "http://127.0.0.1:8765/api/orde
 Дата — з маркетплейсу, інакше дата накладної.
 
 - `GET /api/track?numbers=20450000000000,PRM-700000000` — лише подивитися, без запису: `{results: [{number, found, status, problem, amount, amountSource, date, channel, product, note, np, mp, rd}], errors}`.
-- `POST /api/track` з `{"employee": "Настя", "numbers": ["2045…", "PRM-…"]}` (`numbers` — масив або рядок через пробіл/кому; `channel`, `product` необов’язкові й лише для нових) — додає замовлення або оновлює наявні з тим самим номером. Відповідь `{added, updated, notFound, noAmount, errors, orders}`.
-- `POST /api/track/refresh` з `{"ids": [1000, 1001]}` або з фільтрами `{"employee": "Настя", "period": "2026-11", "status": "checking"}` (порожнє тіло `{}` — усі замовлення) — перевіряє наявні замовлення й оновлює статус, суму, канал і блок `track`; `"withDate": true` — також замінює дату. Замовлення без номера пропускаються. Відповідь `{checked, updated, skipped, notFound, errors, changes: [{id, number, from, to}]}`.
+- `POST /api/track` з `{"employee": "Настя", "numbers": ["2045…", "PRM-…"]}` (`numbers` — масив або рядок через пробіл/кому; `channel`, `product` необов’язкові й лише для нових; `source` типово `manual`) — додає замовлення або оновлює наявні з тим самим номером. Відповідь `{added, updated, notFound, noAmount, errors, orders}`.
+- `POST /api/track/refresh` з `{"ids": [1000, 1001]}` або з фільтрами `{"employee": "Настя", "period": "2026-11", "status": "checking", "source": "auto"}` (порожнє тіло `{}` — усі замовлення обох наборів) — перевіряє наявні замовлення й оновлює статус, суму, канал і блок `track`; `"withDate": true` — також замінює дату. Замовлення без номера пропускаються. Відповідь `{checked, updated, skipped, notFound, errors, changes: [{id, number, from, to}]}`.
 
 ```bash
 curl "http://127.0.0.1:8765/api/track?numbers=20451520852070"
@@ -137,7 +157,7 @@ curl -X POST -H "Content-Type: application/json" "http://127.0.0.1:8765/api/trac
 звірене з Новою Поштою.
 
 - `GET /api/shipments?employee=Настя&period=2026-11` — лише подивитися: `{items: [{employeeId, employee, number, ttn, orderId, channel, kind, product, amount, date, status, problem, mpStatus, note, inBase}], errors}`. Без `employee` — усі працівники, але замовлення спільних кабінетів (ключ без працівника) показуються лише для одного вибраного працівника.
-- `POST /api/shipments/add` з `{"employee": "Настя", "period": "2026-11"}` — зібрати й додати в замовлення (повтори за «працівник + номер» оновлюються). Відповідь `{added, updated, collected, errors}`.
+- `POST /api/shipments/add` з `{"employee": "Настя", "period": "2026-11"}` — зібрати й додати в набір `auto` (повтори за «працівник + номер» чи № замовлення оновлюються). Відповідь `{added, updated, collected, errors}`.
 
 ### Автоматичне оновлення
 
@@ -155,8 +175,8 @@ curl -X POST -H "Content-Type: application/json" "http://127.0.0.1:8765/api/trac
 
 Розуміє два формати аркуша: «Лист2» (B товар, C номер, D сума або ОТКАЗ/ОТМЕНА/НЕТ ДАННЫХ,
 Q/R/S канал, T підсумковий статус) і «номер + сума» (A номер, B сума; статус для таких рядків —
-`defaultStatus`, типово `ok`). Нові записи отримують дату `date` (типово сьогодні); повтори за
-номером оновлюються, дата й товар лишаються. Відповідь `{parsed, added, updated, employeeId}`.
+`defaultStatus`, типово `ok`). Записи потрапляють у набір `manual`. Нові отримують дату з авто-набору,
+якщо програма вже знає цей ТТН, інакше `date` (типово сьогодні); повтори за номером оновлюються, дата й товар лишаються. Відповідь `{parsed, added, updated, employeeId}`.
 
 ```bash
 curl -X POST -H "Content-Type: application/json" "http://127.0.0.1:8765/api/import" \
@@ -176,7 +196,7 @@ curl -X PUT -H "Content-Type: application/json" "http://127.0.0.1:8765/api/data"
 ### Налаштування
 
 - `GET /api/settings` — поточні (ставка, збережені посилання на таблиці, параметри API, кабінети з ключами).
-- `PUT /api/settings` з `{"ratePercent": 5}` — змінити загальну ставку; з `{"accounts": [{"kind": "np|prom|rozetka|epicentr", "name": "Пром 2", "token": "…", "employeeId": 5}]}` — замінити список кабінетів (назва кабінету стає каналом замовлення; `employeeId` порожній = спільний кабінет, інакше ним шукаються лише замовлення цього працівника).
+- `PUT /api/settings` з `{"ratePercent": 5}` — змінити загальну ставку; з `{"salarySource": "auto|manual"}` — який набір рахувати в зарплаті; з `{"accounts": [{"kind": "np|prom|rozetka|epicentr", "name": "Пром 2", "token": "…", "employeeId": 5}]}` — замінити список кабінетів (назва кабінету стає каналом замовлення; `employeeId` порожній = спільний кабінет, інакше ним шукаються лише замовлення цього працівника).
 - `POST /api/settings/accounts/import` з `{"script": "<код Apps Script таблиці>", "employee": "Настя"}` — додати ключі з масивів `NOVA_POSHTA_ACCOUNTS`, `PROM_ACCOUNTS`, `EPICENTER_ACCOUNTS`, `ROZETKA_ACCOUNTS`, прив’язавши до працівника (без `employee` — спільні). Той самий ключ у двох працівників стає спільним. Відповідь `{parsed, added, accounts}`.
 - `GET /api/settings/accounts/test` — перевірити всі кабінети: `[{name, kind, ok, message}]`.
 

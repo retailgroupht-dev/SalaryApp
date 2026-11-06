@@ -74,7 +74,9 @@ test('API: health, працівники, замовлення, зарплата,
     r = await t.call('GET', '/api/orders?employee=' + encodeURIComponent('настя') + '&period=2026-11');
     assert.strictEqual(r.body.length, 2);
 
-    r = await t.call('GET', '/api/salary?period=2026-11');
+    r = await t.call('GET', '/api/salary?period=2026-11'); // типовий набір — auto, а записи з API потрапляють у manual
+    assert.deepStrictEqual({ source: r.body.source, salary: r.body.totals.salary }, { source: 'auto', salary: 0 });
+    r = await t.call('GET', '/api/salary?period=2026-11&source=manual');
     const nastya = r.body.rows.find((x) => x.name === 'Настя');
     assert.strictEqual(nastya.salary, 75); // (1000 + 500) × 5 %
     assert.strictEqual(r.body.rows.find((x) => x.name === 'Тест').salary, 20); // 200 × 10 %
@@ -122,6 +124,8 @@ test('API: імпорт CSV, резервна копія, ставка', async (
 
     r = await t.call('PUT', '/api/settings', { ratePercent: 7.5 });
     assert.strictEqual(r.body.ratePercent, 7.5);
+    r = await t.call('PUT', '/api/settings', { salarySource: 'manual' });
+    assert.strictEqual(r.body.salarySource, 'manual');
     r = await t.call('GET', '/api/salary');
     assert.strictEqual(r.body.rows.find((x) => x.name === 'Товкес').salary, 14.93); // 199 × 7,5 %
 
@@ -160,7 +164,7 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     assert.deepStrictEqual({ status: o.status, amount: o.amount, date: o.date, product: o.product, channel: o.channel, np: o.track.np.status, mp: o.track.mp.channel },
       { status: 'ok', amount: 300, date: '2026-08-30', product: 'щітка з Prom', channel: 'Пром 1', np: 'Відправлення отримано', mp: 'Пром 1' });
     assert.strictEqual(t.service.data.orders.find((x) => x.number === '20451535524936').status, 'refused');
-    r = await t.call('GET', '/api/salary?period=2026-08');
+    r = await t.call('GET', '/api/salary?period=2026-08&source=manual');
     assert.strictEqual(r.body.rows.find((x) => x.name === 'Настя').salary, 15); // 300 × 5 %
 
     // повторне додавання не дублює
@@ -214,20 +218,37 @@ test('API: вставка з таблиці, відправлення з каб�
     r = await t.call('POST', '/api/import/paste', { text: 'Настя\t20451521500117\tпончо' });
     assert.strictEqual(r.body.added, 1);
 
-    // номер із доважком у базі («…TTN 723-1») і чистий ТТН з кабінету — одне замовлення
-    nastya.number = '20451520852070 723-1';
+    // вставлені рядки — набір manual; відправлення з кабінетів — набір auto, набори не змішуються
+    assert.strictEqual(nastya.source, 'manual');
+    nastya.number = '20451520852070 723-1'; // номер із доважком, як у таблиці
     r = await t.call('GET', '/api/shipments?employee=Настя&period=2026-08');
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.body.items.length, 1);
     const it = r.body.items[0];
-    assert.deepStrictEqual({ number: it.number, channel: it.channel, amount: it.amount, status: it.status, inBase: it.inBase }, { number: '20451520852070', channel: 'Пром Насті', amount: 300, status: 'ok', inBase: nastya.id });
+    assert.deepStrictEqual({ number: it.number, channel: it.channel, amount: it.amount, status: it.status, inBase: it.inBase }, { number: '20451520852070', channel: 'Пром Насті', amount: 300, status: 'ok', inBase: null });
     r = await t.call('GET', '/api/shipments?employee=Товкес&period=2026-08');
     assert.strictEqual(r.body.items.length, 0);
     r = await t.call('GET', '/api/shipments?period=2026-13');
     assert.strictEqual(r.status, 400);
     r = await t.call('POST', '/api/shipments/add', { employee: 'Настя', period: '2026-08' });
-    assert.deepStrictEqual({ collected: r.body.collected, added: r.body.added, updated: r.body.updated }, { collected: 1, added: 0, updated: 0 });
-    assert.deepStrictEqual({ orderId: nastya.orderId, kind: nastya.kind }, { orderId: '777', kind: 'prom' }); // № замовлення підтягнувся з кабінету
+    assert.deepStrictEqual({ collected: r.body.collected, added: r.body.added, updated: r.body.updated }, { collected: 1, added: 1, updated: 0 });
+    const autoOne = t.service.data.orders.find((o) => o.source === 'auto');
+    assert.deepStrictEqual({ number: autoOne.number, orderId: autoOne.orderId, kind: autoOne.kind, separate: autoOne.id !== nastya.id && nastya.source === 'manual' }, { number: '20451520852070', orderId: '777', kind: 'prom', separate: true });
+    r = await t.call('GET', '/api/orders?source=auto');
+    assert.strictEqual(r.body.length, 1);
+    // звірка: рядок таблиці з доважком і запис програми — пара за ТТН, збіг; «пончо» є лише в таблиці
+    r = await t.call('GET', '/api/compare');
+    assert.deepStrictEqual(r.body.rows.map((x) => `${x.number} ${x.result}`).sort(), ['20451520852070 збіг', '20451520852070 різний працівник', '20451521500117 лише в таблиці']); // той самий ТТН у Товкеса в таблиці — програма знає його за Настею
+    nastya.amount = 299;
+    r = await t.call('GET', '/api/compare?period=2026-08&employee=Настя');
+    assert.deepStrictEqual({ result: r.body.rows[0].result, auto: r.body.rows[0].autoAmount, manual: r.body.rows[0].manualAmount, differ: r.body.differ }, { result: 'різна сума', auto: 300, manual: 299, differ: 1 });
+    r = await t.call('GET', '/api/compare?period=2026-08&format=xlsx');
+    assert.strictEqual(r.body.readUInt32LE(0), 0x04034b50);
+    // імпорт аркуша в manual: новий рядок бере дату з авто-набору, якщо програма знає цей ТТН
+    r = await t.call('POST', '/api/import', { employee: 'Настя', csv: ',ліхтар,20451520852070,500,,,,Замовлення виконано,500,,,,,,,,Rozetka,,,ОК\n', date: '2026-11-05' });
+    assert.strictEqual(r.body.added, 1);
+    const imported = t.service.data.orders.find((o) => o.source === 'manual' && o.employeeId === nastya.employeeId && o.number === '20451520852070');
+    assert.strictEqual(imported.date, '2026-08-30');
 
     // замовлення без ТТН: номер порожній, є лише № замовлення; коли ТТН з'явиться — те саме замовлення, не дубль
     let a = t.service.addShipments([{ employeeId: nastya.employeeId, number: '', orderId: '555', kind: 'rozetka', channel: 'Rozetka', product: 'ліхтар', amount: 100, date: '2026-08-02', status: 'checking' }]);

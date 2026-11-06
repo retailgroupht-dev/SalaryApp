@@ -41,10 +41,11 @@ class Service {
       if (m) { o.number = ''; o.kind = m[1]; o.orderId = m[2]; changed = true; }
       if (!o.orderId && o.track && o.track.mp && o.track.mp.orderId) { o.orderId = String(o.track.mp.orderId); o.kind = o.track.mp.kind || ''; changed = true; }
       if (o.orderId == null) { o.orderId = ''; o.kind = o.kind || ''; changed = true; }
+      if (!lib.SOURCE[o.source]) { o.source = 'auto'; changed = true; } // база до розділення на два набори
     }
-    const withTtn = new Set(this.data.orders.filter((o) => o.number && o.orderId).map((o) => `${o.employeeId}|${o.kind}|${o.orderId}`));
+    const withTtn = new Set(this.data.orders.filter((o) => o.number && o.orderId).map((o) => `${o.source}|${o.employeeId}|${o.kind}|${o.orderId}`));
     const before = this.data.orders.length;
-    this.data.orders = this.data.orders.filter((o) => o.number || !o.orderId || !withTtn.has(`${o.employeeId}|${o.kind}|${o.orderId}`));
+    this.data.orders = this.data.orders.filter((o) => o.number || !o.orderId || !withTtn.has(`${o.source}|${o.employeeId}|${o.kind}|${o.orderId}`));
     if (changed || this.data.orders.length !== before) this.store.save();
     return before - this.data.orders.length;
   }
@@ -66,6 +67,7 @@ class Service {
       a.token = String(a.token || '').trim();
       s.api = a;
     }
+    if (patch.salarySource) s.salarySource = patch.salarySource === 'manual' ? 'manual' : 'auto';
     if (patch.auto) {
       const a = Object.assign({}, s.auto, patch.auto);
       a.enabled = !!a.enabled;
@@ -145,6 +147,7 @@ class Service {
       number: String(order.number || '').trim().replace(/\s+/g, ' '),
       orderId: String(order.orderId || '').trim(),
       kind: mp.MP_ORDER.includes(order.kind) ? order.kind : '',
+      source: order.source === 'auto' ? 'auto' : 'manual',
       amount: lib.round2(Number(order.amount) || 0),
       channel: String(order.channel || '').trim(),
       status: lib.STATUS[order.status] ? order.status : 'checking',
@@ -178,10 +181,22 @@ class Service {
       const i = this.data.orders.findIndex((x) => x.id === o.id);
       if (i >= 0) { this.data.orders[i] = o; updated++; } else { this.data.orders.push(o); added++; }
     }
-    const r = lib.mergeOrders(this.data.orders, withoutId, () => this.store.nextId());
-    this.data.orders = r.orders;
+    for (const source of Object.keys(lib.SOURCE)) {
+      const inc = withoutId.filter((o) => o.source === source);
+      if (!inc.length) continue;
+      const r = this.mergeInto(source, inc);
+      added += r.added; updated += r.updated;
+    }
     this.store.save();
-    return { added: added + r.added, updated: updated + r.updated, parsed: list.length };
+    return { added, updated, parsed: list.length };
+  }
+
+  // Злиття за «працівник + номер» лише всередині свого набору (auto або manual); другий набір не чіпається.
+  mergeInto(source, incoming) {
+    const mine = this.data.orders.filter((o) => o.source === source), others = this.data.orders.filter((o) => o.source !== source);
+    const r = lib.mergeOrders(mine, incoming.map((o) => Object.assign({ orderId: '', kind: '' }, o, { source })), () => this.store.nextId());
+    this.data.orders = others.concat(r.orders);
+    return { added: r.added, updated: r.updated };
   }
 
   deleteOrders(ids) {
@@ -192,10 +207,11 @@ class Service {
     return { deleted: before - this.data.orders.length };
   }
 
-  listOrders({ employee, period, status, q } = {}) {
+  listOrders({ employee, period, status, q, source } = {}) {
     const emp = employee ? this.requireEmployee(employee) : null;
     const qq = (q || '').trim().toLowerCase();
-    return this.data.orders.filter((o) => (!emp || o.employeeId === emp.id)
+    if (source && !lib.SOURCE[source]) throw new ApiError(400, 'source має бути auto або manual');
+    return this.data.orders.filter((o) => (!emp || o.employeeId === emp.id) && (!source || o.source === source)
       && (!period || lib.monthOf(o.date) === period)
       && (!status || o.status === status)
       && (!qq || (o.product || '').toLowerCase().includes(qq) || (o.number || '').toLowerCase().includes(qq) || (o.orderId || '').toLowerCase().includes(qq)));
@@ -206,8 +222,9 @@ class Service {
     const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
     const rows = lib.parseCsv(text);
     const incoming = lib.importRows(rows, { employeeId: emp.id, date: isDate(date) ? date : todayLocal(), defaultStatus });
-    const r = lib.mergeOrders(this.data.orders, incoming, () => this.store.nextId());
-    this.data.orders = r.orders;
+    // У таблиці дати немає: для нових рядків беремо дату з авто-набору, якщо програма вже знає цей ТТН (у будь-кого).
+    for (const o of incoming) { const a = this.findExisting(null, o.number, { source: 'auto' }); if (a && a.date) o.date = a.date; }
+    const r = this.mergeInto('manual', incoming);
     this.store.save();
     return { added: r.added, updated: r.updated, parsed: incoming.length, employeeId: emp.id };
   }
@@ -312,8 +329,9 @@ class Service {
   // («RMP-251639361 723-5205316» з таблиці = «RMP-251639361» з кабінету).
   // Те саме замовлення працівника: за № замовлення в кабінеті (kind + orderId), за точним номером,
   // або за кодом посилки / 14-значним ТТН усередині номера (рядок таблиці з доважком).
-  findExisting(employeeId, number, { kind, orderId } = {}) {
-    const mine = this.data.orders.filter((x) => x.employeeId === employeeId);
+  // employeeId null — будь-якого працівника.
+  findExisting(employeeId, number, { kind, orderId, source } = {}) {
+    const mine = this.data.orders.filter((x) => (employeeId == null || x.employeeId === employeeId) && (!source || x.source === source));
     if (orderId) {
       const byOrder = mine.find((x) => x.orderId === String(orderId) && (!kind || !x.kind || x.kind === kind));
       if (byOrder) return byOrder;
@@ -345,17 +363,19 @@ class Service {
   // Додати замовлення за номерами (ТТН, PRM-…, номер замовлення): статус, сума, дата, канал — з джерел.
   // Повтор за «працівник + номер» оновлюється, а не дублюється.
   // products: {номер → назва товару} (необов’язково, для вставки з таблиці).
-  async addByTtn({ employee, employeeId, numbers, channel, product, products } = {}) {
+  // Номери, які вводять руками або вставляють з таблиці, → набір manual.
+  async addByTtn({ employee, employeeId, numbers, channel, product, products, source } = {}) {
     const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
+    source = source === 'auto' ? 'auto' : 'manual';
     const { results, errors } = await this.trackNumbers(numbers, emp.id);
     const res = { added: 0, updated: 0, notFound: [], noAmount: [], errors, orders: [] };
     for (const [number, t] of results) {
       if (!t.found) { res.notFound.push(number); }
-      let o = this.findExisting(emp.id, number);
+      let o = this.findExisting(emp.id, number, { source });
       if (o) { if (this.applyTracking(o, t)) res.updated++; }
       else {
         if (!t.found) continue;
-        o = this.normalizeOrder({ employeeId: emp.id, number, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
+        o = this.normalizeOrder({ employeeId: emp.id, number, source, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
         this.data.orders.push(o);
@@ -369,10 +389,10 @@ class Service {
   }
 
   // Перевірити наявні замовлення: за ids або за фільтрами listOrders. Замовлення без номера пропускаються.
-  async refreshFromNp({ ids, employee, period, status, q, withDate } = {}) {
+  async refreshFromNp({ ids, employee, period, status, q, source, withDate } = {}) {
     const orders = Array.isArray(ids) && ids.length
       ? this.data.orders.filter((o) => ids.map(Number).includes(o.id))
-      : this.listOrders({ employee, period, status, q });
+      : this.listOrders({ employee, period, status, q, source });
     const res = { checked: 0, updated: 0, skipped: 0, notFound: [], errors: [], changes: [] };
     const withNumber = orders.filter((o) => o.number);
     res.skipped = orders.length - withNumber.length;
@@ -467,7 +487,7 @@ class Service {
       for (const it of own) {
         const number = it.ttn || ''; // без ТТН (ще не відправлено або скасовано) — номер порожній, є лише № замовлення
         const c = combine(number || it.orderId, npFound.get(it.ttn), it, rdFound.get(mp.rozetkaDeliveryId(it.ttn)));
-        const existing = this.findExisting(e.id, number, { kind: it.kind, orderId: it.orderId });
+        const existing = this.findExisting(e.id, number, { kind: it.kind, orderId: it.orderId, source: 'auto' });
         items.push({
           employeeId: e.id, employee: e.name, number, ttn: it.ttn, orderId: it.orderId, channel: it.channel, kind: it.kind,
           product: it.product, amount: c.amount != null ? c.amount : it.amount, date: it.date, status: c.status, problem: c.problem,
@@ -487,10 +507,10 @@ class Service {
       const number = String(it.number || it.ttn || '').trim(), orderId = String(it.orderId || '').trim();
       if (!emp || (!number && !orderId)) continue;
       const t = { status: lib.STATUS[it.status] ? it.status : 'checking', amount: it.amount == null ? null : Number(it.amount), channel: it.channel, product: it.product, date: it.date, note: it.note || '', problem: it.problem || '', np: it.track && it.track.np, mp: it.track && it.track.mp, rd: it.track && it.track.rd, ttn: number, orderId, kind: it.kind };
-      let o = this.findExisting(emp.id, number, { kind: it.kind, orderId });
+      let o = this.findExisting(emp.id, number, { kind: it.kind, orderId, source: 'auto' });
       if (o) { if (this.applyTracking(o, t, { withDate: true })) updated++; }
       else {
-        o = this.normalizeOrder({ employeeId: emp.id, number, orderId, kind: it.kind, product: it.product, channel: it.channel, status: t.status, amount: t.amount || 0, date: it.date });
+        o = this.normalizeOrder({ employeeId: emp.id, number, orderId, kind: it.kind, source: 'auto', product: it.product, channel: it.channel, status: t.status, amount: t.amount || 0, date: it.date });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
         this.data.orders.push(o);
@@ -526,7 +546,7 @@ class Service {
           } catch (err) { res.errors.push(`${e.name} ${period}: ${err.message || err}`); }
         }
         try {
-          const r = await this.refreshFromNp({ period, status: 'checking' });
+          const r = await this.refreshFromNp({ period, status: 'checking', source: 'auto' });
           res.checked += r.checked; res.changed += r.updated; res.errors.push(...r.errors);
         } catch (err) { res.errors.push(`перевірка ${period}: ${err.message || err}`); }
       }
@@ -542,24 +562,85 @@ class Service {
   }
 
   // ---------- розрахунок і експорт ----------
-  salary(period) {
+  // source: 'auto' | 'manual'; без нього — набір із налаштувань (типово auto).
+  salarySource(source) {
+    if (source && !lib.SOURCE[source]) throw new ApiError(400, 'source має бути auto або manual');
+    return source || this.data.settings.salarySource || 'auto';
+  }
+  salary(period, source) {
     if (period && !isMonth(period)) throw new ApiError(400, 'Період має бути у форматі YYYY-MM');
-    const rows = lib.calcSalary(this.data, period || '');
+    source = this.salarySource(source);
+    const rows = lib.calcSalary(this.data, period || '', source);
     const totals = rows.reduce((a, s) => ({ total: a.total + s.total, done: a.done + s.done, sumDone: lib.round2(a.sumDone + s.sumDone), salary: lib.round2(a.salary + s.salary) }),
       { total: 0, done: 0, sumDone: 0, salary: 0 });
-    return { period: period || '', ratePercent: this.data.settings.ratePercent, rows, totals };
+    return { period: period || '', source, ratePercent: this.data.settings.ratePercent, rows, totals };
   }
 
-  exportBuffer(format, period) {
-    const { rows: summary, totals } = this.salary(period);
+  // Звірка двох наборів за період: ТТН (або код посилки всередині номера; без ТТН — № замовлення) → пара авто/таблиця.
+  // Дата не порівнюється: записи таблиці шукаються серед усіх місяців, бо їхня дата — день імпорту.
+  compare(period, employee) {
+    if (period && !isMonth(period)) throw new ApiError(400, 'Період має бути у форматі YYYY-MM');
+    const emp = employee ? this.requireEmployee(employee) : null;
+    const inPeriod = (o) => !period || lib.monthOf(o.date) === period;
+    const keysOf = (o) => {
+      const k = [...(String(o.number || '').match(/\d{14}/g) || []), ...mp.parcelCodes(o.number || '')];
+      if (!k.length && o.number) k.push('n:' + o.number.toLowerCase());
+      if (!k.length && o.orderId) k.push(`id:${o.kind}:${o.orderId}`);
+      return k;
+    };
+    const all = this.data.orders.filter((o) => !emp || o.employeeId === emp.id);
+    const idx = { auto: new Map(), manual: new Map() };
+    for (const o of all) for (const k of keysOf(o)) if (!idx[o.source].has(k)) idx[o.source].set(k, o);
+    const pairOf = (o, other) => keysOf(o).map((k) => idx[other].get(k)).find(Boolean) || null;
+    const name = (o) => (o && (this.data.employees.find((e) => e.id === o.employeeId) || {}).name) || '';
+    const rows = [], seen = new Set();
+    const push = (a, m) => {
+      if (a) seen.add('a' + a.id); if (m) seen.add('m' + m.id);
+      let result;
+      if (!a) result = 'лише в таблиці';
+      else if (!m) result = 'лише в авто';
+      else if (a.employeeId !== m.employeeId) result = 'різний працівник';
+      else if (a.status !== m.status) result = 'різний статус';
+      else if (Number(a.amount) !== Number(m.amount)) result = 'різна сума';
+      else result = 'збіг';
+      const o = a || m;
+      rows.push({ number: o.number, orderId: (a && a.orderId) || (m && m.orderId) || '', product: o.product, date: o.date,
+        autoId: a ? a.id : null, manualId: m ? m.id : null, autoEmployee: name(a), manualEmployee: name(m), autoChannel: a ? a.channel : '', manualChannel: m ? m.channel : '',
+        autoAmount: a ? a.amount : null, manualAmount: m ? m.amount : null, autoStatus: a ? a.status : '', manualStatus: m ? m.status : '', result });
+    };
+    for (const a of all) if (a.source === 'auto' && inPeriod(a)) push(a, pairOf(a, 'manual'));
+    for (const m of all) if (m.source === 'manual' && inPeriod(m) && !seen.has('m' + m.id)) push(pairOf(m, 'auto'), m);
+    const totals = {};
+    for (const r of rows) totals[r.result] = (totals[r.result] || 0) + 1;
+    const order = { 'різний працівник': 0, 'різний статус': 1, 'різна сума': 2, 'лише в авто': 3, 'лише в таблиці': 4, 'збіг': 5 };
+    rows.sort((x, y) => order[x.result] - order[y.result] || (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
+    return { period: period || '', rows, totals, match: totals['збіг'] || 0, differ: rows.length - (totals['збіг'] || 0) };
+  }
+
+  compareBuffer(format, period, employee) {
+    const c = this.compare(period, employee);
+    const st = (s) => (s ? lib.STATUS[s] || s : '');
+    const head = ['Результат', 'ТТН', '№ замовлення', 'Товар', 'Дата', 'Працівник (авто)', 'Працівник (таблиця)', 'Канал (авто)', 'Канал (таблиця)', 'Сума (авто)', 'Сума (таблиця)', 'Статус (авто)', 'Статус (таблиця)'];
+    const rows = [head, ...c.rows.map((r) => [r.result, r.number, r.orderId, r.product, r.date, r.autoEmployee, r.manualEmployee, r.autoChannel, r.manualChannel,
+      r.autoAmount == null ? '' : r.autoAmount, r.manualAmount == null ? '' : r.manualAmount, st(r.autoStatus), st(r.manualStatus)])];
+    const sRows = [['Результат', 'Замовлень'], ...Object.entries(c.totals), ['Разом', c.rows.length]];
+    const filename = `звірка-${period || 'увесь-час'}.${format}`;
+    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Звірка', rows }, { name: 'Підсумок', rows: sRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', summary: c };
+    if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...rows]), 'utf8'), contentType: 'text/csv; charset=utf-8', summary: c };
+    throw new ApiError(400, 'Формат має бути xlsx або csv');
+  }
+
+  exportBuffer(format, period, source) {
+    source = this.salarySource(source);
+    const { rows: summary, totals } = this.salary(period, source);
     const head = ['Працівник', 'Ставка, %', 'Замовлень', 'Виконано', 'Відмови', 'Скасовано', 'Немає даних', 'Перевіряється', 'Сума виконаних', 'Зарплата'];
     const sRows = [head, ...summary.map((s) => [s.name, s.ratePercent, s.total, s.done, s.refused, s.cancelled, s.nodata, s.checking, s.sumDone, s.salary])];
     sRows.push(['Разом', '', totals.total, totals.done, '', '', '', '', totals.sumDone, totals.salary]);
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
-    const orders = this.listOrders({ period }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
+    const orders = this.listOrders({ period, source }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
     const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус'],
       ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status])];
-    const filename = `зарплата-${period || 'увесь-час'}.${format}`;
+    const filename = `зарплата-${source === 'auto' ? 'авто' : 'таблиця'}-${period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, { name: 'Замовлення', rows: oRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...oRows]), 'utf8'), contentType: 'text/csv; charset=utf-8' };
     throw new ApiError(400, 'Формат має бути xlsx або csv');
@@ -574,7 +655,7 @@ class Service {
     this.data.settings = settings;
     this.data.employees = d.employees.map((e) => ({ id: Number(e.id), name: String(e.name || '').trim(), ratePercent: e.ratePercent == null ? null : Number(e.ratePercent) })).filter((e) => e.id && e.name);
     const ids = new Set(this.data.employees.map((e) => e.id));
-    this.data.orders = d.orders.filter((o) => ids.has(Number(o.employeeId))).map((o) => this.normalizeOrder(o)).map((o) => (o.id ? o : Object.assign(o, { id: this.store.nextId() })));
+    this.data.orders = d.orders.filter((o) => ids.has(Number(o.employeeId))).map((o) => this.normalizeOrder(Object.assign({ source: 'auto' }, o))).map((o) => (o.id ? o : Object.assign(o, { id: this.store.nextId() })));
     const maxId = Math.max(999, ...this.data.employees.map((e) => e.id), ...this.data.orders.map((o) => o.id));
     if (this.data.nextId <= maxId) this.data.nextId = maxId + 1;
     this.migrateNumbers();

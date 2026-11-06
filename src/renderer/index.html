@@ -10,7 +10,8 @@
   <nav class="sidebar">
     <div class="brand">SalaryApp<div class="brand-sub">розрахунок зарплат</div></div>
     <button class="nav active" data-tab="salary">Зарплата</button>
-    <button class="nav" data-tab="orders">Замовлення</button>
+    <button class="nav" data-tab="auto">Замовлення: авто</button>
+    <button class="nav" data-tab="manual">Замовлення: таблиця</button>
     <button class="nav" data-tab="shipments">Відправлення</button>
     <button class="nav" data-tab="employees">Працівники</button>
     <button class="nav" data-tab="settings">Налаштування</button>
@@ -26,11 +27,12 @@
         <h1>Зарплата</h1>
         <div class="toolbar">
           <label>Період <select id="salaryPeriod"></select></label>
+          <label>Дані <select id="salarySource"><option value="auto">Авто (кабінети)</option><option value="manual">Таблиця (вручну)</option></select></label>
           <button id="exportXlsx">Експорт XLSX</button>
           <button id="exportCsv" class="secondary">Експорт CSV</button>
         </div>
       </header>
-      <p class="hint">Зарплата = сума замовлень зі статусом «Виконано» × ставка. Відмови, скасування й «немає даних» не рахуються.</p>
+      <p class="hint">Зарплата = сума замовлень зі статусом «Виконано» × ставка. Відмови, скасування й «немає даних» не рахуються. «Дані» — який із двох наборів замовлень рахувати: той, що веде програма з кабінетів, чи той, що ведеться з таблиці.</p>
       <table id="salaryTable" class="grid">
         <thead><tr>
           <th>Працівник</th><th class="num">Ставка, %</th><th class="num">Замовлень</th><th class="num">Виконано</th>
@@ -47,29 +49,28 @@
       </div>
     </section>
 
-    <!-- Замовлення -->
+    <!-- Замовлення: одна секція для двох наборів (auto — веде програма, manual — з таблиці) -->
     <section id="tab-orders" class="tab">
       <header>
-        <h1>Замовлення</h1>
+        <h1 id="ordersTitle">Замовлення</h1>
         <div class="toolbar">
+          <button id="compareBtn" class="secondary" title="XLSX: кожне замовлення періоду — що каже програма і що в таблиці">Звірка авто/таблиця…</button>
           <button id="addOrder">Додати замовлення</button>
         </div>
       </header>
-      <div class="panel">
+      <p class="hint auto-only">Цей набір веде програма сама: замовлення приходять з кабінетів Prom / Rozetka / Епіцентр (вкладка «Відправлення» і автоматичне оновлення в Налаштуваннях), статуси звіряються з Новою Поштою. Руками сюди нічого додавати не треба.</p>
+      <p class="hint manual-only">Цей набір ведеться з реальних даних: імпорт аркуша Google Таблиці або вставлені рядки (товар, ТТН, продажник). Він не змішується з авто-набором — «Звірка» показує, де програма й таблиця розходяться.</p>
+      <div class="panel manual-only">
         <h2>За номером ТТН або замовлення</h2>
         <div class="row">
           <label>Працівник <select id="ttnEmployee"></select></label>
           <label class="grow">Номери (ТТН, PRM-…, номер замовлення; кілька — через пробіл, кому або з нового рядка) <textarea id="ttnNumbers" rows="2" placeholder="20450000000000 PRM-700000000"></textarea></label>
           <button id="ttnAddBtn">Підтягнути й додати</button>
         </div>
-        <div class="row" style="margin-top:8px">
-          <button id="refreshNp" class="secondary">Перевірити показані нижче замовлення</button>
-          <label class="check"><span><input id="refreshWithDate" type="checkbox"> також дату (дата замовлення на маркетплейсі або накладної)</span></label>
-        </div>
         <div id="ttnStatus" class="status"></div>
         <p class="hint" style="margin-bottom:0">Статус, сума, дата продажу, канал і товар підтягуються з Нової Пошти та кабінетів Prom / Rozetka / Епіцентр (Налаштування → Кабінети), за тими ж правилами, що й скрипт у таблицях. Якщо замовлення є лише в Новій Пошті без ключа відправника, суми не буде — вкажіть вручну.</p>
       </div>
-      <div class="panel">
+      <div class="panel manual-only">
         <h2>Вставити з таблиці</h2>
         <div class="row">
           <label class="grow">Скопіюйте в таблиці три колонки (товар, ТТН, продажник) і вставте сюди; порядок колонок неважливий <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#9;Настя&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
@@ -77,7 +78,7 @@
         </div>
         <div id="pasteStatus" class="status"></div>
       </div>
-      <div class="panel">
+      <div class="panel manual-only">
         <h2>Імпорт із Google Таблиці</h2>
         <div class="row">
           <label>Працівник <select id="importEmployee"></select></label>
@@ -95,6 +96,11 @@
         <label>Статус <select id="fStatus"><option value="">Усі</option></select></label>
         <label class="grow">Пошук <input id="fSearch" type="search" placeholder="товар, ТТН або № замовлення"></label>
         <button id="deleteSelected" class="danger secondary">Видалити вибрані</button>
+      </div>
+      <div class="row" style="margin:0 0 10px">
+        <button id="refreshNp" class="secondary">Перевірити показані нижче замовлення</button>
+        <label class="check"><span><input id="refreshWithDate" type="checkbox"> також дату (дата замовлення на маркетплейсі або накладної)</span></label>
+        <span id="refreshStatus" class="status" style="margin:0"></span>
       </div>
       <table id="ordersTable" class="grid fixed">
         <colgroup><col style="width:36px"><col style="width:100px"><col style="width:100px"><col><col style="width:150px"><col style="width:110px"><col style="width:90px"><col style="width:80px"><col style="width:118px"><col style="width:84px"></colgroup>

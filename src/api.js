@@ -9,12 +9,13 @@ const MAX_BODY = 50 * 1024 * 1024;
 
 const ROUTES_DOC = [
   ['GET', '/api/health', 'стан: версія, кількість працівників і замовлень'],
-  ['GET', '/api/salary?period=YYYY-MM', 'розрахунок зарплати (без period — за весь час)'],
+  ['GET', '/api/salary?period=YYYY-MM&source=auto|manual', 'розрахунок зарплати (без period — за весь час; source — набір: авто чи таблиця)'],
+  ['GET', '/api/compare?period=YYYY-MM&format=xlsx|csv', 'звірка наборів авто/таблиця (без format — JSON)'],
   ['GET', '/api/employees', 'список працівників'],
   ['POST', '/api/employees', '{name, ratePercent?} — додати працівника'],
   ['DELETE', '/api/employees/:id', 'видалити працівника разом із його замовленнями'],
-  ['GET', '/api/orders?employee=&period=&status=&q=', 'замовлення з фільтрами (employee — id або ім’я)'],
-  ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?}; без id — злиття за номером'],
+  ['GET', '/api/orders?employee=&period=&status=&q=&source=', 'замовлення з фільтрами (employee — id або ім’я; source — auto|manual)'],
+  ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?, source?}; без id — злиття за номером у своєму наборі'],
   ['DELETE', '/api/orders/:id', 'видалити замовлення'],
   ['POST', '/api/import', '{employee, url} або {employee, csv, date?, defaultStatus?} — імпорт аркуша'],
   ['POST', '/api/import/paste', '{text} — рядки «товар ⇥ ТТН ⇥ працівник», скопійовані з таблиці; пошук за номерами'],
@@ -23,12 +24,12 @@ const ROUTES_DOC = [
   ['POST', '/api/sync', 'автоматичне оновлення зараз: зібрати з кабінетів і перевірити за поточний і попередній місяць'],
   ['GET', '/api/track?numbers=a,b', 'пошук за номерами (НП + маркетплейси) без запису в базу'],
   ['POST', '/api/track', '{employee, numbers: [...] | "…", channel?} — додати/оновити замовлення за номерами'],
-  ['POST', '/api/track/refresh', '{ids?} або {employee?, period?, status?, q?}, withDate? — перевірити наявні замовлення'],
-  ['GET', '/api/export?format=xlsx|csv&period=', 'файл розрахунку'],
+  ['POST', '/api/track/refresh', '{ids?} або {employee?, period?, status?, q?, source?}, withDate? — перевірити наявні замовлення'],
+  ['GET', '/api/export?format=xlsx|csv&period=&source=', 'файл розрахунку'],
   ['GET', '/api/data', 'уся база (резервна копія JSON)'],
   ['PUT', '/api/data', 'замінити базу даними з резервної копії'],
   ['GET', '/api/settings', 'налаштування'],
-  ['PUT', '/api/settings', '{ratePercent?, accounts?, auto?: {enabled, hours}} — ставка, кабінети, автооновлення'],
+  ['PUT', '/api/settings', '{ratePercent?, salarySource?, accounts?, auto?: {enabled, hours}} — ставка, набір для зарплати, кабінети, автооновлення'],
   ['POST', '/api/settings/accounts/import', '{script, employee?} — ключі з тексту Apps Script таблиці'],
   ['GET', '/api/settings/accounts/test', 'перевірити всі кабінети'],
   ['GET', '/api/docs', 'ця документація у Markdown (?download=1 — як файл)'],
@@ -86,7 +87,12 @@ function createApi(service, appInfo) {
       const json = () => { if (!body.trim()) return {}; try { return JSON.parse(body); } catch (e) { throw new ApiError(400, 'Тіло запиту має бути JSON'); } };
 
       if (m === 'GET' && p === '/api/health') return send(res, 200, { ok: true, version: appInfo.version, employees: service.data.employees.length, orders: service.data.orders.length, routes: ROUTES_DOC });
-      if (m === 'GET' && p === '/api/salary') return send(res, 200, service.salary(q.period || ''));
+      if (m === 'GET' && p === '/api/salary') return send(res, 200, service.salary(q.period || '', q.source));
+      if (m === 'GET' && p === '/api/compare') {
+        if (!q.format) return send(res, 200, service.compare(q.period || '', q.employee));
+        const f = service.compareBuffer(q.format, q.period || '', q.employee);
+        return send(res, 200, f.buffer, { 'Content-Type': f.contentType, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.filename)}` });
+      }
       if (m === 'GET' && p === '/api/employees') return send(res, 200, service.data.employees);
       if (m === 'POST' && p === '/api/employees') { const b = json(); return send(res, 201, service.addEmployee(b.name, b.ratePercent)); }
       let mm;
@@ -115,7 +121,7 @@ function createApi(service, appInfo) {
         throw new ApiError(400, 'Потрібно url або csv');
       }
       if (m === 'GET' && p === '/api/export') {
-        const f = service.exportBuffer(q.format || 'xlsx', q.period || '');
+        const f = service.exportBuffer(q.format || 'xlsx', q.period || '', q.source);
         return send(res, 200, f.buffer, { 'Content-Type': f.contentType, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.filename)}` });
       }
       if (m === 'GET' && p === '/api/data') return send(res, 200, service.data);
@@ -127,7 +133,7 @@ function createApi(service, appInfo) {
         return send(res, 200, Buffer.from(md, 'utf8'), h);
       }
       if (m === 'GET' && p === '/api/settings') return send(res, 200, service.data.settings);
-      if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, accounts: b.accounts, auto: b.auto })); }
+      if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, accounts: b.accounts, auto: b.auto, salarySource: b.salarySource })); }
       if (m === 'POST' && p === '/api/settings/accounts/import') { const b = json() || {}; return send(res, 200, await service.importAccountsFromScript(b.script, b.employee)); }
       if (m === 'GET' && p === '/api/settings/accounts/test') return send(res, 200, await service.testAccounts());
       return send(res, 404, { error: 'Невідомий маршрут', routes: ROUTES_DOC });

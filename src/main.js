@@ -65,10 +65,10 @@ function createWindow() {
       try {
         const shot = async (file) => fs.writeFileSync(file, (await win.webContents.capturePage()).toPNG());
         await shot(process.env.SALARY_SMOKE_SHOT);
-        for (const tab of ['orders', 'shipments', 'settings']) {
+        for (const tab of ['auto', 'manual', 'shipments', 'settings']) {
           await win.webContents.executeJavaScript(`document.querySelector('[data-tab=${tab}]').click()`);
           if (tab === 'settings') await win.webContents.executeJavaScript("document.querySelector('#toggleDocs').click()");
-          else await win.webContents.executeJavaScript(`(document.querySelector('#tab-${tab} table.grid') || {}).scrollIntoView && document.querySelector('#tab-${tab} table.grid').scrollIntoView()`);
+          else await win.webContents.executeJavaScript("(document.querySelector('.tab.active table.grid') || {}).scrollIntoView && document.querySelector('.tab.active table.grid').scrollIntoView()");
           await new Promise((r) => setTimeout(r, 800));
           await shot(process.env.SALARY_SMOKE_SHOT.replace(/\.png$/, '') + `-${tab}.png`);
         }
@@ -151,8 +151,15 @@ function registerIpc() {
     return Object.assign(service.importCsvText(text, p), { data: service.data });
   });
 
-  ipcMain.handle('export:file', async (_e, { format, period }) => {
-    const f = service.exportBuffer(format, period);
+  ipcMain.handle('compare:file', async (_e, { format, period }) => {
+    const f = service.compareBuffer(format || 'xlsx', period);
+    const r = await dialog.showSaveDialog(win, { title: 'Зберегти звірку', defaultPath: f.filename, filters: [{ name: (format || 'xlsx').toUpperCase(), extensions: [format || 'xlsx'] }] });
+    if (r.canceled) return null;
+    fs.writeFileSync(r.filePath, f.buffer);
+    return { path: r.filePath, totals: f.summary.totals, rows: f.summary.rows.length };
+  });
+  ipcMain.handle('export:file', async (_e, { format, period, source }) => {
+    const f = service.exportBuffer(format, period, source);
     const r = await dialog.showSaveDialog(win, {
       title: 'Зберегти розрахунок',
       defaultPath: f.filename,

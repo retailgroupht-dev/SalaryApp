@@ -61,6 +61,7 @@ table.grid { width: 100%; border-collapse: collapse; background: var(--panel); b
 .grid.fixed td, .grid.fixed th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid td.nowrap { white-space: nowrap; }
 .grid td .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body[data-source="auto"] .manual-only, body[data-source="manual"] .auto-only { display: none; }
 .copy { cursor: copy; border-bottom: 1px dashed var(--muted); }
 .copy:hover { background: #eef2ff; }
 .muted { color: var(--muted); }
