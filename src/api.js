@@ -18,7 +18,7 @@ const ROUTES_DOC = [
   ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?, source?}; без id — злиття за номером у своєму наборі'],
   ['DELETE', '/api/orders/:id', 'видалити замовлення'],
   ['POST', '/api/import', '{employee, url} або {employee, csv, date?, defaultStatus?} — імпорт аркуша'],
-  ['POST', '/api/import/paste', '{text} — рядки «товар ⇥ ТТН ⇥ працівник», скопійовані з таблиці; пошук за номерами'],
+  ['POST', '/api/import/paste', '{text, employee?} — рядки «товар ⇥ ТТН ⇥ працівник», скопійовані з таблиці (employee — для рядків без імені); пошук за номерами'],
   ['GET', '/api/shipments?employee=&period=YYYY-MM', 'замовлення з кабінетів маркетплейсів за місяць (без запису)'],
   ['POST', '/api/shipments/add', '{employee?, period} — зібрати з кабінетів і додати в замовлення'],
   ['POST', '/api/sync', 'автоматичне оновлення зараз: зібрати з кабінетів і перевірити за поточний і попередній місяць'],
@@ -107,7 +107,7 @@ function createApi(service, appInfo) {
       if (m === 'POST' && p === '/api/track') return send(res, 200, await service.addByTtn(json()));
       if (m === 'POST' && p === '/api/track/refresh') return send(res, 200, await service.refreshFromNp(json()));
       if (m === 'POST' && p === '/api/sync') return send(res, 200, await service.autoSync());
-      if (m === 'POST' && p === '/api/import/paste') return send(res, 200, await service.addPasted((json() || {}).text));
+      if (m === 'POST' && p === '/api/import/paste') { const b = json() || {}; return send(res, 200, await service.addPasted(b.text, b.employee != null ? b.employee : b.employeeId)); }
       if (m === 'GET' && p === '/api/shipments') return send(res, 200, await service.collectShipments({ employee: q.employee, period: q.period }));
       if (m === 'POST' && p === '/api/shipments/add') {
         const b = json() || {};

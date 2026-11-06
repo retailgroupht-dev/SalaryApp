@@ -209,7 +209,7 @@ test('API: вставка з таблиці, відправлення з каб�
 
     r = await t.call('POST', '/api/import/paste', { text: 'щітка\t20451520852070\tНастя\nкомпас\t20451520852070\tТовкес\nбез номера\t\tНастя\nщось\t20451535524936\tНевідомий\n' });
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added, unknownReasons: r.body.unknown.map((u) => u.reason) }, { parsed: 2, added: 2, unknownReasons: ['немає номера ТТН', 'не впізнано працівника'] });
+    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added, unknownReasons: r.body.unknown.map((u) => u.reason) }, { parsed: 2, added: 2, unknownReasons: ['немає номера ТТН', 'не впізнано працівника (виберіть працівника для рядків без імені)'] });
     const nastya = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Настя').id);
     const tovkes = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Товкес').id);
     assert.deepStrictEqual({ product: nastya.product, amount: nastya.amount, channel: nastya.channel, date: nastya.date }, { product: 'щітка', amount: 300, channel: 'Пром Насті', date: '2026-08-30' });
@@ -217,6 +217,9 @@ test('API: вставка з таблиці, відправлення з каб�
     // порядок колонок неважливий
     r = await t.call('POST', '/api/import/paste', { text: 'Настя\t20451521500117\tпончо' });
     assert.strictEqual(r.body.added, 1);
+    // лише дві колонки (товар і ТТН) — працівник з параметра; ім’я в рядку має перевагу
+    r = await t.call('POST', '/api/import/paste', { text: 'шпалери\t20451521500117\nщітка\t20451520852070\tТовкес', employee: 'Настя' });
+    assert.deepStrictEqual({ parsed: r.body.parsed, updated: r.body.updated, unknown: r.body.unknown.length }, { parsed: 2, updated: 0, unknown: 0 });
 
     // вставлені рядки — набір manual; відправлення з кабінетів — набір auto, набори не змішуються
     assert.strictEqual(nastya.source, 'manual');

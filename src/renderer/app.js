@@ -96,6 +96,7 @@ function renderOrders() {
   fillEmployeeSelect($('#fEmployee'), true);
   fillEmployeeSelect($('#importEmployee'), false);
   fillEmployeeSelect($('#ttnEmployee'), false);
+  fillEmployeeSelect($('#pasteEmployee'), false);
   if (!$('#importDate').value) $('#importDate').value = today();
   const fPeriodSel = $('#fPeriod');
   const curPeriod = fPeriodSel.dataset.set ? fPeriodSel.value : '';
@@ -399,7 +400,7 @@ function bind() {
     if (!text.trim()) return pasteStatus('Вставте рядки з таблиці', 'err');
     pasteStatus('Шукаю в Новій Пошті та на маркетплейсах…'); $('#pasteBtn').disabled = true;
     try {
-      const r = await window.api.importPaste(text);
+      const r = await window.api.importPaste({ text, employeeId: Number($('#pasteEmployee').value) || 0 });
       const parts = [`Рядків: ${r.parsed}. Додано: ${r.added}, оновлено: ${r.updated}.`];
       if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
       if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);

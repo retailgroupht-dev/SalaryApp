@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   npAdd: (p) => ipcRenderer.invoke('np:add', p),
   npRefresh: (p) => ipcRenderer.invoke('np:refresh', p),
   accountsImport: (p) => ipcRenderer.invoke('accounts:import', p),
-  importPaste: (text) => ipcRenderer.invoke('import:paste', text),
+  importPaste: (p) => ipcRenderer.invoke('import:paste', p),
   shipmentsCollect: (p) => ipcRenderer.invoke('shipments:collect', p),
   shipmentsAdd: (items) => ipcRenderer.invoke('shipments:add', items),
   syncRun: () => ipcRenderer.invoke('sync:run'),

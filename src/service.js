@@ -421,8 +421,10 @@ class Service {
   // ---------- вставка з таблиці ----------
   // Текст, скопійований із трьох колонок Google Таблиці (товар, ТТН/номер, працівник) у будь-якому
   // порядку: колонки розділені табуляцією. Повертає {rows: [{product, number, employee}], unknown: [...]}.
-  parsePasted(text) {
+  // employee — працівник для рядків, у яких імені немає (вставка лише двох колонок: товар і ТТН).
+  parsePasted(text, employee) {
     const rows = [], unknown = [];
+    const fallback = employee ? this.requireEmployee(employee) : null;
     for (const raw of String(text || '').split(/\r?\n/)) {
       const cells = raw.split('\t').map((c) => c.trim());
       if (!cells.some(Boolean)) continue;
@@ -436,15 +438,16 @@ class Service {
         rest.push(c);
       }
       product = rest.join(' ');
+      if (!emp) emp = fallback;
       if (!number) { unknown.push({ line: raw, reason: 'немає номера ТТН' }); continue; }
-      if (!emp) { unknown.push({ line: raw, reason: 'не впізнано працівника' }); continue; }
+      if (!emp) { unknown.push({ line: raw, reason: 'не впізнано працівника (виберіть працівника для рядків без імені)' }); continue; }
       rows.push({ product, number, employeeId: emp.id, employee: emp.name });
     }
     return { rows, unknown };
   }
 
-  async addPasted(text) {
-    const { rows, unknown } = this.parsePasted(text);
+  async addPasted(text, employee) {
+    const { rows, unknown } = this.parsePasted(text, employee);
     if (!rows.length && !unknown.length) throw new ApiError(400, 'Порожній текст');
     const res = { parsed: rows.length, added: 0, updated: 0, notFound: [], noAmount: [], errors: [], unknown };
     for (const empId of new Set(rows.map((r) => r.employeeId))) {
