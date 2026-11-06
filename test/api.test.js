@@ -214,6 +214,8 @@ test('API: вставка з таблиці, відправлення з каб�
     r = await t.call('POST', '/api/import/paste', { text: 'Настя\t20451521500117\tпончо' });
     assert.strictEqual(r.body.added, 1);
 
+    // номер із доважком у базі («…TTN 723-1») і чистий ТТН з кабінету — одне замовлення
+    nastya.number = '20451520852070 723-1';
     r = await t.call('GET', '/api/shipments?employee=Настя&period=2026-08');
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.body.items.length, 1);
@@ -242,7 +244,7 @@ test('API: вставка з таблиці, відправлення з каб�
     // перейменування кабінету перейменовує канал у замовленнях
     const accs = r.body.accounts.map((a) => (a.name === 'Пром Насті' ? Object.assign({}, a, { name: 'Пром Анастасія' }) : a));
     r = await t.call('PUT', '/api/settings', { accounts: accs });
-    assert.strictEqual(t.service.data.orders.find((o) => o.number === '20451520852070' && o.employeeId === t.service.resolveEmployee('Настя').id).channel, 'Пром Анастасія');
+    assert.strictEqual(t.service.data.orders.find((o) => o.id === nastya.id).channel, 'Пром Анастасія');
     r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];", employee: 'Товкес' });
     assert.strictEqual(r.body.added, 0);
     assert.strictEqual(r.body.accounts.find((a) => a.kind === 'rozetka').employeeId, null);

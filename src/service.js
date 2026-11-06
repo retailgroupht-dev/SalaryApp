@@ -287,6 +287,17 @@ class Service {
     catch (e) { throw new ApiError(502, e.message || String(e)); }
   }
 
+  // Наявне замовлення працівника з тим самим номером — точно або за кодом посилки/ТТН усередині
+  // («RMP-251639361 723-5205316» з таблиці = «RMP-251639361» з кабінету).
+  findExisting(employeeId, number) {
+    const exact = this.data.orders.find((x) => x.employeeId === employeeId && x.number === number);
+    if (exact) return exact;
+    const codes = new Set([...(String(number).match(/\d{14}/g) || []), ...mp.parcelCodes(number)]);
+    if (!codes.size) return null;
+    return this.data.orders.find((x) => x.employeeId === employeeId && x.number !== number
+      && [...(x.number.match(/\d{14}/g) || []), ...mp.parcelCodes(x.number)].some((c) => codes.has(c))) || null;
+  }
+
   // Підставити зведення в замовлення. withDate — також дату (з маркетплейсу або дата накладної).
   applyTracking(o, t, { withDate } = {}) {
     const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel };
@@ -308,7 +319,7 @@ class Service {
     const res = { added: 0, updated: 0, notFound: [], noAmount: [], errors, orders: [] };
     for (const [number, t] of results) {
       if (!t.found) { res.notFound.push(number); }
-      let o = this.data.orders.find((x) => x.employeeId === emp.id && x.number === number);
+      let o = this.findExisting(emp.id, number);
       if (o) { if (this.applyTracking(o, t)) res.updated++; }
       else {
         if (!t.found) continue;
@@ -424,7 +435,7 @@ class Service {
       for (const it of own) {
         const number = it.ttn || `${it.kind}-${it.orderId}`;
         const c = combine(number, npFound.get(it.ttn), it, rdFound.get(mp.rozetkaDeliveryId(it.ttn)));
-        const existing = this.data.orders.find((o) => o.employeeId === e.id && o.number === number);
+        const existing = this.findExisting(e.id, number);
         items.push({
           employeeId: e.id, employee: e.name, number, ttn: it.ttn, orderId: it.orderId, channel: it.channel, kind: it.kind,
           product: it.product, amount: c.amount != null ? c.amount : it.amount, date: it.date, status: c.status, problem: c.problem,
@@ -444,7 +455,7 @@ class Service {
       const number = String(it.number || '').trim();
       if (!emp || !number) continue;
       const t = { status: lib.STATUS[it.status] ? it.status : 'checking', amount: it.amount == null ? null : Number(it.amount), channel: it.channel, product: it.product, date: it.date, note: it.note || '', problem: it.problem || '', np: it.track && it.track.np, mp: it.track && it.track.mp, rd: it.track && it.track.rd };
-      let o = this.data.orders.find((x) => x.employeeId === emp.id && x.number === number);
+      let o = this.findExisting(emp.id, number);
       if (o) { if (this.applyTracking(o, t, { withDate: true })) updated++; }
       else {
         o = this.normalizeOrder({ employeeId: emp.id, number, product: it.product, channel: it.channel, status: t.status, amount: t.amount || 0, date: it.date });
