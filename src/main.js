@@ -151,12 +151,12 @@ function registerIpc() {
     return Object.assign(service.importCsvText(text, p), { data: service.data });
   });
 
-  ipcMain.handle('compare:file', async (_e, { format, period }) => {
-    const f = service.compareBuffer(format || 'xlsx', period);
-    const r = await dialog.showSaveDialog(win, { title: 'Зберегти звірку', defaultPath: f.filename, filters: [{ name: (format || 'xlsx').toUpperCase(), extensions: [format || 'xlsx'] }] });
-    if (r.canceled) return null;
+  ipcMain.handle('orders:export', async (_e, { format, filters }) => {
+    const f = service.exportOrdersBuffer(format || 'xlsx', filters || {});
+    const r = await dialog.showSaveDialog(win, { title: 'Зберегти замовлення', defaultPath: f.filename, filters: [{ name: (format || 'xlsx').toUpperCase(), extensions: [format || 'xlsx'] }] });
+    if (r.canceled || !r.filePath) return null;
     fs.writeFileSync(r.filePath, f.buffer);
-    return { path: r.filePath, totals: f.summary.totals, rows: f.summary.rows.length };
+    return { path: r.filePath, count: f.count };
   });
   ipcMain.handle('export:file', async (_e, { format, period, source }) => {
     const f = service.exportBuffer(format, period, source);

@@ -300,14 +300,10 @@ function bind() {
   });
   $('#exportXlsx').addEventListener('click', async () => { const p = await window.api.exportFile({ format: 'xlsx', period: state.salaryPeriod, source: state.salarySource }); if (p) alert('Збережено: ' + p); });
   $('#exportCsv').addEventListener('click', async () => { const p = await window.api.exportFile({ format: 'csv', period: state.salaryPeriod, source: state.salarySource }); if (p) alert('Збережено: ' + p); });
-  $('#compareBtn').addEventListener('click', async () => {
-    const period = $('#fPeriod').value;
-    if (!period) return alert('Виберіть період у фільтрі «Період» — звірка робиться за місяць');
-    const r = await window.api.compareFile({ format: 'xlsx', period });
-    if (!r) return;
-    const t = r.totals;
-    alert(`Звірка за ${monthLabel(period)}: збіг ${t['збіг'] || 0}, лише в авто ${t['лише в авто'] || 0}, лише в таблиці ${t['лише в таблиці'] || 0}, різний статус ${t['різний статус'] || 0}, різна сума ${t['різна сума'] || 0}, різний працівник ${t['різний працівник'] || 0}.\nЗбережено: ${r.path}`);
-  });
+  const orderFilters = () => ({ source: state.ordersSource, employee: $('#fEmployee').value || undefined, period: $('#fPeriod').value || undefined, status: $('#fStatus').value || undefined, q: $('#fSearch').value.trim() || undefined });
+  const exportOrders = async (format) => { const r = await window.api.exportOrders({ format, filters: orderFilters() }); if (r) alert(`Збережено ${r.count} замовлень: ${r.path}`); };
+  $('#ordersXlsx').addEventListener('click', () => exportOrders('xlsx'));
+  $('#ordersCsv').addEventListener('click', () => exportOrders('csv'));
 
   // Замовлення
   ['#fEmployee', '#fPeriod', '#fStatus'].forEach((s) => $(s).addEventListener('change', renderOrders));

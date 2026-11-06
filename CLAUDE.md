@@ -10,7 +10,7 @@
 `manual` — з реальних даних (імпорт аркуша, вставка рядків, за номером, руками). Набори не змішуються
 (злиття за «працівник + ТТН» або `kind`+`orderId` лише всередині набору), у вікні це дві вкладки
 «Замовлення: авто» і «Замовлення: таблиця»; зарплата — за одним набором (`settings.salarySource`, типово auto);
-`service.compare` / `GET /api/compare` звіряє їх за ТТН (кнопка «Звірка авто/таблиця…» → XLSX).
+список будь-якої вкладки вивантажується файлом (`GET /api/orders?format=xlsx|csv`).
 Період — місяць за полем «дата» замовлення: при додаванні за номером — дата продажу з маркетплейсу
 (інакше дата накладної НП), при імпорті з таблиці — день імпорту (прапорець «також дату» в перевірці замінює).
 
@@ -52,7 +52,7 @@
 Вмикається в Налаштуваннях (типово увімкнено, `http://127.0.0.1:8765`, без ключа). Ключ —
 `Authorization: Bearer …`, `X-Api-Key` або `?key=`. Адреса `0.0.0.0` відкриває API в локальну
 мережу — лише з ключем. Маршрути (повний перелік і приклади curl — у вкладці Налаштування):
-`GET /api/health`, `GET /api/salary?period=YYYY-MM&source=`, `GET /api/compare?period=&format=`, `GET|POST /api/employees`,
+`GET /api/health`, `GET /api/salary?period=YYYY-MM&source=`, `GET|POST /api/employees`,
 `DELETE /api/employees/:id`, `GET /api/orders?employee=&period=&status=&q=`,
 `POST /api/orders` (об’єкт або масив; без `id` — злиття за «працівник + номер»),
 `DELETE /api/orders/:id`, `POST /api/import` (`{employee, url}` або `{employee, csv}`),

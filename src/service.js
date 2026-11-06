@@ -579,57 +579,16 @@ class Service {
     return { period: period || '', source, ratePercent: this.data.settings.ratePercent, rows, totals };
   }
 
-  // Звірка двох наборів за період: ТТН (або код посилки всередині номера; без ТТН — № замовлення) → пара авто/таблиця.
-  // Дата не порівнюється: записи таблиці шукаються серед усіх місяців, бо їхня дата — день імпорту.
-  compare(period, employee) {
-    if (period && !isMonth(period)) throw new ApiError(400, 'Період має бути у форматі YYYY-MM');
-    const emp = employee ? this.requireEmployee(employee) : null;
-    const inPeriod = (o) => !period || lib.monthOf(o.date) === period;
-    const keysOf = (o) => {
-      const k = [...(String(o.number || '').match(/\d{14}/g) || []), ...mp.parcelCodes(o.number || '')];
-      if (!k.length && o.number) k.push('n:' + o.number.toLowerCase());
-      if (!k.length && o.orderId) k.push(`id:${o.kind}:${o.orderId}`);
-      return k;
-    };
-    const all = this.data.orders.filter((o) => !emp || o.employeeId === emp.id);
-    const idx = { auto: new Map(), manual: new Map() };
-    for (const o of all) for (const k of keysOf(o)) if (!idx[o.source].has(k)) idx[o.source].set(k, o);
-    const pairOf = (o, other) => keysOf(o).map((k) => idx[other].get(k)).find(Boolean) || null;
-    const name = (o) => (o && (this.data.employees.find((e) => e.id === o.employeeId) || {}).name) || '';
-    const rows = [], seen = new Set();
-    const push = (a, m) => {
-      if (a) seen.add('a' + a.id); if (m) seen.add('m' + m.id);
-      let result;
-      if (!a) result = 'лише в таблиці';
-      else if (!m) result = 'лише в авто';
-      else if (a.employeeId !== m.employeeId) result = 'різний працівник';
-      else if (a.status !== m.status) result = 'різний статус';
-      else if (Number(a.amount) !== Number(m.amount)) result = 'різна сума';
-      else result = 'збіг';
-      const o = a || m;
-      rows.push({ number: o.number, orderId: (a && a.orderId) || (m && m.orderId) || '', product: o.product, date: o.date,
-        autoId: a ? a.id : null, manualId: m ? m.id : null, autoEmployee: name(a), manualEmployee: name(m), autoChannel: a ? a.channel : '', manualChannel: m ? m.channel : '',
-        autoAmount: a ? a.amount : null, manualAmount: m ? m.amount : null, autoStatus: a ? a.status : '', manualStatus: m ? m.status : '', result });
-    };
-    for (const a of all) if (a.source === 'auto' && inPeriod(a)) push(a, pairOf(a, 'manual'));
-    for (const m of all) if (m.source === 'manual' && inPeriod(m) && !seen.has('m' + m.id)) push(pairOf(m, 'auto'), m);
-    const totals = {};
-    for (const r of rows) totals[r.result] = (totals[r.result] || 0) + 1;
-    const order = { 'різний працівник': 0, 'різний статус': 1, 'різна сума': 2, 'лише в авто': 3, 'лише в таблиці': 4, 'збіг': 5 };
-    rows.sort((x, y) => order[x.result] - order[y.result] || (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
-    return { period: period || '', rows, totals, match: totals['збіг'] || 0, differ: rows.length - (totals['збіг'] || 0) };
-  }
-
-  compareBuffer(format, period, employee) {
-    const c = this.compare(period, employee);
-    const st = (s) => (s ? lib.STATUS[s] || s : '');
-    const head = ['Результат', 'ТТН', '№ замовлення', 'Товар', 'Дата', 'Працівник (авто)', 'Працівник (таблиця)', 'Канал (авто)', 'Канал (таблиця)', 'Сума (авто)', 'Сума (таблиця)', 'Статус (авто)', 'Статус (таблиця)'];
-    const rows = [head, ...c.rows.map((r) => [r.result, r.number, r.orderId, r.product, r.date, r.autoEmployee, r.manualEmployee, r.autoChannel, r.manualChannel,
-      r.autoAmount == null ? '' : r.autoAmount, r.manualAmount == null ? '' : r.manualAmount, st(r.autoStatus), st(r.manualStatus)])];
-    const sRows = [['Результат', 'Замовлень'], ...Object.entries(c.totals), ['Разом', c.rows.length]];
-    const filename = `звірка-${period || 'увесь-час'}.${format}`;
-    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Звірка', rows }, { name: 'Підсумок', rows: sRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', summary: c };
-    if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...rows]), 'utf8'), contentType: 'text/csv; charset=utf-8', summary: c };
+  // Список замовлень (набір + фільтри, як у вкладці) одним аркушем.
+  exportOrdersBuffer(format, filters = {}) {
+    const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
+    const orders = this.listOrders(filters).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
+    const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус'],
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status])];
+    const source = filters.source ? (filters.source === 'auto' ? 'авто' : 'таблиця') : 'усі';
+    const filename = `замовлення-${source}-${filters.period || 'увесь-час'}.${format}`;
+    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Замовлення', rows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', count: orders.length };
+    if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv(rows), 'utf8'), contentType: 'text/csv; charset=utf-8', count: orders.length };
     throw new ApiError(400, 'Формат має бути xlsx або csv');
   }
 

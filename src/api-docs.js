@@ -44,7 +44,7 @@ ${authNote}
 \`auto\` — веде програма сама (збір із кабінетів Prom / Rozetka / Епіцентр, автоматичне оновлення);
 \`manual\` — з реальних даних (імпорт аркуша Google Таблиці, вставлені рядки, додані за номером або руками).
 Набори не змішуються: повтори зливаються лише всередині свого набору. Зарплата рахується за одним набором
-(\`source\` у запиті або \`salarySource\` у налаштуваннях, типово \`auto\`), а \`GET /api/compare\` звіряє їх між собою.
+(\`source\` у запиті або \`salarySource\` у налаштуваннях, типово \`auto\`); будь-який набір вивантажується файлом через \`GET /api/orders?format=xlsx\`.
 
 **Замовлення** — \`{id, employeeId, product, number, orderId, kind, source, amount, channel, status, date, track}\`:
 
@@ -91,19 +91,6 @@ curl${auth} "${base}/api/salary?period=2026-11"
 curl${auth} -o зарплата-2026-11.xlsx "${base}/api/export?format=xlsx&period=2026-11&source=auto"
 \`\`\`
 
-### Звірка авто / таблиця
-
-\`GET /api/compare?period=YYYY-MM&employee=\` — кожне замовлення періоду в парі: що каже програма (\`auto\`) і що в таблиці (\`manual\`).
-Пара шукається за ТТН (або кодом посилки всередині номера; без ТТН — за № замовлення), записи таблиці — серед усіх місяців, бо їхня дата — день імпорту.
-Відповідь \`{period, rows: [{result, number, orderId, product, date, autoEmployee, manualEmployee, autoChannel, manualChannel, autoAmount, manualAmount, autoStatus, manualStatus}], totals, match, differ}\`;
-\`result\` — \`збіг\`, \`лише в авто\`, \`лише в таблиці\`, \`різний працівник\`, \`різний статус\`, \`різна сума\`.
-З \`&format=xlsx|csv\` — той самий файл, що з кнопки «Звірка авто/таблиця…» (аркуші «Звірка» і «Підсумок»).
-
-\`\`\`bash
-curl${auth} "${base}/api/compare?period=2026-11"
-curl${auth} -o звірка-2026-11.xlsx "${base}/api/compare?period=2026-11&format=xlsx"
-\`\`\`
-
 ### Працівники
 
 - \`GET /api/employees\` — список.
@@ -116,7 +103,7 @@ curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/employees" 
 
 ### Замовлення
 
-- \`GET /api/orders?employee=&period=&status=&q=&source=\` — фільтри необов’язкові: працівник (id або ім’я), місяць \`YYYY-MM\`, статус, пошук по товару, ТТН чи № замовлення, набір \`auto|manual\`.
+- \`GET /api/orders?employee=&period=&status=&q=&source=\` — фільтри необов’язкові: працівник (id або ім’я), місяць \`YYYY-MM\`, статус, пошук по товару, ТТН чи № замовлення, набір \`auto|manual\`. З \`&format=xlsx|csv\` — той самий список файлом (кнопки «Експорт» на вкладках замовлень).
 - \`POST /api/orders\` — один об’єкт або масив. Запис **з \`id\`** замінюється повністю; **без \`id\`** зливається за «працівник + номер» усередині свого набору (\`source\`, типово \`manual\`): якщо такий номер уже є, оновлюються статус, сума й канал, інакше додається новий. Повторна відправка того самого пакета не плодить дублікатів. Відповідь \`{added, updated, parsed}\`.
 - \`DELETE /api/orders/:id\` → \`{deleted}\`.
 

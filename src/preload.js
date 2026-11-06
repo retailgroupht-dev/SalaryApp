@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   importUrl: (p) => ipcRenderer.invoke('import:url', p),
   importFile: (p) => ipcRenderer.invoke('import:file', p),
   exportFile: (p) => ipcRenderer.invoke('export:file', p),
-  compareFile: (p) => ipcRenderer.invoke('compare:file', p),
+  exportOrders: (p) => ipcRenderer.invoke('orders:export', p),
   apiStatus: () => ipcRenderer.invoke('api:status'),
   apiDocs: () => ipcRenderer.invoke('api:docs'),
   apiDocsSave: () => ipcRenderer.invoke('api:docsSave'),

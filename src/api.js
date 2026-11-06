@@ -10,11 +10,10 @@ const MAX_BODY = 50 * 1024 * 1024;
 const ROUTES_DOC = [
   ['GET', '/api/health', 'стан: версія, кількість працівників і замовлень'],
   ['GET', '/api/salary?period=YYYY-MM&source=auto|manual', 'розрахунок зарплати (без period — за весь час; source — набір: авто чи таблиця)'],
-  ['GET', '/api/compare?period=YYYY-MM&format=xlsx|csv', 'звірка наборів авто/таблиця (без format — JSON)'],
   ['GET', '/api/employees', 'список працівників'],
   ['POST', '/api/employees', '{name, ratePercent?} — додати працівника'],
   ['DELETE', '/api/employees/:id', 'видалити працівника разом із його замовленнями'],
-  ['GET', '/api/orders?employee=&period=&status=&q=&source=', 'замовлення з фільтрами (employee — id або ім’я; source — auto|manual)'],
+  ['GET', '/api/orders?employee=&period=&status=&q=&source=&format=', 'замовлення з фільтрами (employee — id або ім’я; source — auto|manual; format=xlsx|csv — файлом)'],
   ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?, source?}; без id — злиття за номером у своєму наборі'],
   ['DELETE', '/api/orders/:id', 'видалити замовлення'],
   ['POST', '/api/import', '{employee, url} або {employee, csv, date?, defaultStatus?} — імпорт аркуша'],
@@ -88,16 +87,15 @@ function createApi(service, appInfo) {
 
       if (m === 'GET' && p === '/api/health') return send(res, 200, { ok: true, version: appInfo.version, employees: service.data.employees.length, orders: service.data.orders.length, routes: ROUTES_DOC });
       if (m === 'GET' && p === '/api/salary') return send(res, 200, service.salary(q.period || '', q.source));
-      if (m === 'GET' && p === '/api/compare') {
-        if (!q.format) return send(res, 200, service.compare(q.period || '', q.employee));
-        const f = service.compareBuffer(q.format, q.period || '', q.employee);
-        return send(res, 200, f.buffer, { 'Content-Type': f.contentType, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.filename)}` });
-      }
       if (m === 'GET' && p === '/api/employees') return send(res, 200, service.data.employees);
       if (m === 'POST' && p === '/api/employees') { const b = json(); return send(res, 201, service.addEmployee(b.name, b.ratePercent)); }
       let mm;
       if (m === 'DELETE' && (mm = /^\/api\/employees\/(\d+)$/.exec(p))) { service.deleteEmployee(mm[1]); return send(res, 200, { ok: true }); }
-      if (m === 'GET' && p === '/api/orders') return send(res, 200, service.listOrders(q));
+      if (m === 'GET' && p === '/api/orders') {
+        if (!q.format) return send(res, 200, service.listOrders(q));
+        const f = service.exportOrdersBuffer(q.format, q);
+        return send(res, 200, f.buffer, { 'Content-Type': f.contentType, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.filename)}` });
+      }
       if (m === 'POST' && p === '/api/orders') { const b = json(); return send(res, 200, service.mergeOrders(Array.isArray(b) ? b : [b])); }
       if (m === 'DELETE' && (mm = /^\/api\/orders\/(\d+)$/.exec(p))) return send(res, 200, service.deleteOrders([mm[1]]));
       if (m === 'GET' && p === '/api/track') {

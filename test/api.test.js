@@ -239,13 +239,10 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.deepStrictEqual({ number: autoOne.number, orderId: autoOne.orderId, kind: autoOne.kind, separate: autoOne.id !== nastya.id && nastya.source === 'manual' }, { number: '20451520852070', orderId: '777', kind: 'prom', separate: true });
     r = await t.call('GET', '/api/orders?source=auto');
     assert.strictEqual(r.body.length, 1);
-    // звірка: рядок таблиці з доважком і запис програми — пара за ТТН, збіг; «пончо» є лише в таблиці
-    r = await t.call('GET', '/api/compare');
-    assert.deepStrictEqual(r.body.rows.map((x) => `${x.number} ${x.result}`).sort(), ['20451520852070 збіг', '20451520852070 різний працівник', '20451521500117 лише в таблиці']); // той самий ТТН у Товкеса в таблиці — програма знає його за Настею
-    nastya.amount = 299;
-    r = await t.call('GET', '/api/compare?period=2026-08&employee=Настя');
-    assert.deepStrictEqual({ result: r.body.rows[0].result, auto: r.body.rows[0].autoAmount, manual: r.body.rows[0].manualAmount, differ: r.body.differ }, { result: 'різна сума', auto: 300, manual: 299, differ: 1 });
-    r = await t.call('GET', '/api/compare?period=2026-08&format=xlsx');
+    // список набору файлом
+    r = await t.call('GET', '/api/orders?source=manual&format=csv');
+    assert.ok(r.headers.get('content-disposition').includes('attachment') && r.body.toString('utf8').includes('Дата,Працівник,Товар,ТТН,№ замовлення'));
+    r = await t.call('GET', '/api/orders?source=auto&format=xlsx');
     assert.strictEqual(r.body.readUInt32LE(0), 0x04034b50);
     // імпорт аркуша в manual: новий рядок бере дату з авто-набору, якщо програма знає цей ТТН
     r = await t.call('POST', '/api/import', { employee: 'Настя', csv: ',ліхтар,20451520852070,500,,,,Замовлення виконано,500,,,,,,,,Rozetka,,,ОК\n', date: '2026-11-05' });
