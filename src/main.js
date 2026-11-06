@@ -228,6 +228,15 @@ function registerIpc() {
 // SALARY_DATA_DIR — інша тека даних (для перевірок, щоб не чіпати робочу базу).
 if (process.env.SALARY_DATA_DIR) app.setPath('userData', process.env.SALARY_DATA_DIR);
 
+// Лише один екземпляр на теку даних: два запущені застосунки (напр. зібраний і режим розробки)
+// перезаписували б data.json кожен своєю копією. Другий запуск лише показує вікно першого.
+if (!app.requestSingleInstanceLock()) {
+  console.log('SalaryApp уже запущено — цей екземпляр закривається');
+  app.quit();
+} else {
+  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+}
+
 app.whenReady().then(async () => {
   if (!process.env.SALARY_DATA_DIR) migrateOldDataDir(app.getPath('userData'));
   if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) app.dock.setIcon(ICON);
