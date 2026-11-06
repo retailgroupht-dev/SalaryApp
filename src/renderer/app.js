@@ -155,7 +155,7 @@ function renderAccounts(tests) {
   $('#accountsTable tbody').innerHTML = list.map((a, i) => {
     const t = tests && tests[i];
     const empSel = `<select class="acc-emp" data-i="${i}"><option value="">Усі (спільний)</option>${data.employees.map((e) => `<option value="${e.id}" ${a.employeeId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>`;
-    return `<tr data-i="${i}"><td>${KIND_NAMES[a.kind] || a.kind}</td><td>${esc(a.name)}</td><td>${empSel}</td><td class="nowrap" title="${esc(a.token)}">…${esc(a.token.slice(-6))}</td>
+    return `<tr data-i="${i}"><td>${KIND_NAMES[a.kind] || a.kind}</td><td><input class="acc-name" data-i="${i}" value="${esc(a.name)}" style="width:100%"></td><td>${empSel}</td><td class="nowrap" title="${esc(a.token)}">…${esc(a.token.slice(-6))}</td>
     <td class="${t ? (t.ok ? 'ok' : 'err') : ''}">${t ? esc(t.message) : ''}</td><td><button class="small danger secondary acc-del" data-i="${i}">Видалити</button></td></tr>`;
   }).join('') || '<tr><td colspan="6" class="hint">Кабінетів немає. Додайте ключ або імпортуйте зі скрипта таблиці.</td></tr>';
   fillEmployeeSelect($('#accEmployee'), 'shared');
@@ -476,10 +476,13 @@ function bind() {
     accStatus('Кабінет додано', 'ok');
   });
   $('#accountsTable tbody').addEventListener('change', async (e) => {
-    const sel = e.target.closest('select.acc-emp'); if (!sel) return;
+    const sel = e.target.closest('select.acc-emp'), inp = e.target.closest('input.acc-name');
+    if (!sel && !inp) return;
     const list = (data.settings.accounts || []).map((a) => Object.assign({}, a));
-    list[Number(sel.dataset.i)].employeeId = sel.value ? Number(sel.value) : null;
+    if (sel) list[Number(sel.dataset.i)].employeeId = sel.value ? Number(sel.value) : null;
+    if (inp) list[Number(inp.dataset.i)].name = inp.value.trim();
     await saveAccounts(list);
+    renderOrders(); renderSalary();
   });
   $('#accountsTable tbody').addEventListener('click', async (e) => {
     const btn = e.target.closest('button.acc-del'); if (!btn) return;

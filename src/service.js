@@ -47,7 +47,15 @@ class Service {
       a.token = String(a.token || '').trim();
       s.api = a;
     }
-    if (patch.accounts) s.accounts = this.cleanAccounts(patch.accounts);
+    if (patch.accounts) {
+      const old = new Map(s.accounts.map((a) => [a.kind + '|' + a.token, a.name]));
+      s.accounts = this.cleanAccounts(patch.accounts);
+      // Перейменований кабінет → той самий канал у замовленнях.
+      for (const a of s.accounts) {
+        const prev = old.get(a.kind + '|' + a.token);
+        if (prev && prev !== a.name) for (const o of this.data.orders) if (o.channel === prev) o.channel = a.name;
+      }
+    }
     this.store.save();
     return s;
   }
@@ -220,10 +228,26 @@ class Service {
   }
 
   // Ключі з тексту Apps Script таблиць (NOVA_POSHTA_ACCOUNTS, PROM_ACCOUNTS, …) — додаються до наявних.
-  importAccountsFromScript(text, employee) {
+  // Назви кабінетів — зрозумілі: «Пром Настя», «Пром Товкес 2», «Нова Пошта Малай» (за відправником у НП).
+  async importAccountsFromScript(text, employee) {
     const emp = employee != null && employee !== '' ? this.requireEmployee(employee) : null;
     const parsed = mp.parseScriptAccounts(text).map((a) => Object.assign(a, { employeeId: emp ? emp.id : null }));
     if (!parsed.length) throw new ApiError(400, 'У тексті не знайдено жодного ключа (очікую масиви NOVA_POSHTA_ACCOUNTS, PROM_ACCOUNTS, EPICENTER_ACCOUNTS, ROZETKA_ACCOUNTS)');
+    const known = new Set(this.data.settings.accounts.map((a) => a.kind + '|' + a.token));
+    const counts = {};
+    for (const a of parsed) {
+      if (known.has(a.kind + '|' + a.token)) continue;
+      let who = emp ? emp.name : '';
+      if (a.kind === 'np') who = (await np.senderName(a.token, { fetch: this.fetch })) || who;
+      if (!who) continue;
+      counts[a.kind] = (counts[a.kind] || 0) + 1;
+      a.name = `${mp.KINDS[a.kind]} ${who}`;
+    }
+    for (const kind of Object.keys(counts)) {
+      if (counts[kind] < 2 || kind === 'np') continue;
+      let i = 1;
+      for (const a of parsed) if (a.kind === kind && !known.has(a.kind + '|' + a.token)) a.name += ` ${i++}`;
+    }
     const before = this.data.settings.accounts.length;
     this.data.settings.accounts = this.cleanAccounts([...this.data.settings.accounts, ...parsed]);
     this.store.save();

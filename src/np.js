@@ -134,4 +134,17 @@ async function track(numbers, opts = {}) {
   return { found: out, errors };
 }
 
-module.exports = { track, mapDocument, mapStatus, parseNpDate, isTtn, STATUS_BY_CODE, PROBLEM_BY_CODE, NP_URL };
+// Назва відправника кабінету (Counterparty/getCounterparties): «МАЛАЙ АНАСТАСІЯ АНДРІЇВНА ФОП» → «Малай».
+async function senderName(apiKey, opts = {}) {
+  const fetchFn = opts.fetch || globalThis.fetch;
+  try {
+    const res = await fetchFn(NP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, modelName: 'Counterparty', calledMethod: 'getCounterparties', methodProperties: { CounterpartyProperty: 'Sender', Page: '1' } }) });
+    const json = await res.json();
+    const d = json && json.success && json.data && json.data[0];
+    const full = String((d && d.Description) || '').replace(/\b(ФОП|ТОВ|ПП)\b/gi, '').trim();
+    const first = full.split(/\s+/)[0] || '';
+    return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : '';
+  } catch (e) { return ''; }
+}
+
+module.exports = { track, senderName, mapDocument, mapStatus, parseNpDate, isTtn, STATUS_BY_CODE, PROBLEM_BY_CODE, NP_URL };

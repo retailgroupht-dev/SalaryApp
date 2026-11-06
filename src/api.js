@@ -126,7 +126,7 @@ function createApi(service, appInfo) {
       }
       if (m === 'GET' && p === '/api/settings') return send(res, 200, service.data.settings);
       if (m === 'PUT' && p === '/api/settings') { const b = json(); return send(res, 200, service.saveSettings({ ratePercent: b.ratePercent, accounts: b.accounts })); }
-      if (m === 'POST' && p === '/api/settings/accounts/import') { const b = json() || {}; return send(res, 200, service.importAccountsFromScript(b.script, b.employee)); }
+      if (m === 'POST' && p === '/api/settings/accounts/import') { const b = json() || {}; return send(res, 200, await service.importAccountsFromScript(b.script, b.employee)); }
       if (m === 'GET' && p === '/api/settings/accounts/test') return send(res, 200, await service.testAccounts());
       return send(res, 404, { error: 'Невідомий маршрут', routes: ROUTES_DOC });
     } catch (e) {

@@ -227,8 +227,13 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.deepStrictEqual({ collected: r.body.collected, added: r.body.added, updated: r.body.updated }, { collected: 1, added: 0, updated: 0 });
 
     // імпорт ключів зі скрипта для працівника; той самий ключ у другого → спільний
-    r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];", employee: 'Настя' });
+    r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];\nconst PROM_ACCOUNTS = [\n  { name: 'Пром 1', token: 'pa' },\n  { name: 'Пром 2', token: 'pb' }\n];", employee: 'Настя' });
     assert.strictEqual(r.body.accounts.find((a) => a.kind === 'rozetka').employeeId, t.service.resolveEmployee('Настя').id);
+    assert.deepStrictEqual(r.body.accounts.filter((a) => a.employeeId).map((a) => a.name), ['Пром Насті', 'Prom.ua Настя 1', 'Prom.ua Настя 2', 'Rozetka Настя']);
+    // перейменування кабінету перейменовує канал у замовленнях
+    const accs = r.body.accounts.map((a) => (a.name === 'Пром Насті' ? Object.assign({}, a, { name: 'Пром Анастасія' }) : a));
+    r = await t.call('PUT', '/api/settings', { accounts: accs });
+    assert.strictEqual(t.service.data.orders.find((o) => o.number === '20451520852070' && o.employeeId === t.service.resolveEmployee('Настя').id).channel, 'Пром Анастасія');
     r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];", employee: 'Товкес' });
     assert.strictEqual(r.body.added, 0);
     assert.strictEqual(r.body.accounts.find((a) => a.kind === 'rozetka').employeeId, null);
