@@ -133,7 +133,7 @@ test('API: імпорт CSV, резервна копія, ставка', async (
     backup.settings.api = { port: 1 }; // налаштування API з копії не переносяться
     r = await t.call('PUT', '/api/data', backup);
     assert.deepStrictEqual(r.body, { employees: 6, orders: 3 });
-    assert.deepStrictEqual(t.service.data.settings.accounts, [{ kind: 'prom', name: 'Пром 1', token: 'p' }]);
+    assert.deepStrictEqual(t.service.data.settings.accounts, [{ kind: 'prom', name: 'Пром 1', token: 'p', employeeId: null }]);
     assert.strictEqual(t.service.data.settings.api.port, 8765);
     r = await t.call('PUT', '/api/data', { foo: 1 });
     assert.strictEqual(r.status, 400);
@@ -193,6 +193,45 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     assert.ok(r.body.every((x) => x.ok), JSON.stringify(r.body));
     r = await t.call('POST', '/api/track', { employee: 'Хтось', numbers: ['20451520852070'] });
     assert.strictEqual(r.status, 400);
+  } finally { await t.cleanup(); }
+});
+
+test('API: вставка з таблиці, відправлення з кабінетів, кабінети працівника', async () => {
+  const t = await setup();
+  try {
+    // кабінет Prom належить Насті; у Товкеса кабінетів немає → його номери шукаються лише в НП
+    let r = await t.call('PUT', '/api/settings', { accounts: [{ kind: 'prom', name: 'Пром Насті', token: 'p', employeeId: t.service.resolveEmployee('Настя').id }] });
+    assert.strictEqual(r.body.accounts[0].employeeId, t.service.resolveEmployee('Настя').id);
+
+    r = await t.call('POST', '/api/import/paste', { text: 'щітка\t20451520852070\tНастя\nкомпас\t20451520852070\tТовкес\nбез номера\t\tНастя\nщось\t20451535524936\tНевідомий\n' });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added, unknownReasons: r.body.unknown.map((u) => u.reason) }, { parsed: 2, added: 2, unknownReasons: ['немає номера ТТН', 'не впізнано працівника'] });
+    const nastya = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Настя').id);
+    const tovkes = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Товкес').id);
+    assert.deepStrictEqual({ product: nastya.product, amount: nastya.amount, channel: nastya.channel, date: nastya.date }, { product: 'щітка', amount: 300, channel: 'Пром Насті', date: '2026-08-30' });
+    assert.deepStrictEqual({ product: tovkes.product, amount: tovkes.amount, channel: tovkes.channel, date: tovkes.date }, { product: 'компас', amount: 278, channel: '', date: '2026-09-01' }); // лише НП
+    // порядок колонок неважливий
+    r = await t.call('POST', '/api/import/paste', { text: 'Настя\t20451521500117\tпончо' });
+    assert.strictEqual(r.body.added, 1);
+
+    r = await t.call('GET', '/api/shipments?employee=Настя&period=2026-08');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.items.length, 1);
+    const it = r.body.items[0];
+    assert.deepStrictEqual({ number: it.number, channel: it.channel, amount: it.amount, status: it.status, inBase: it.inBase }, { number: '20451520852070', channel: 'Пром Насті', amount: 300, status: 'ok', inBase: nastya.id });
+    r = await t.call('GET', '/api/shipments?employee=Товкес&period=2026-08');
+    assert.strictEqual(r.body.items.length, 0);
+    r = await t.call('GET', '/api/shipments?period=2026-13');
+    assert.strictEqual(r.status, 400);
+    r = await t.call('POST', '/api/shipments/add', { employee: 'Настя', period: '2026-08' });
+    assert.deepStrictEqual({ collected: r.body.collected, added: r.body.added, updated: r.body.updated }, { collected: 1, added: 0, updated: 0 });
+
+    // імпорт ключів зі скрипта для працівника; той самий ключ у другого → спільний
+    r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];", employee: 'Настя' });
+    assert.strictEqual(r.body.accounts.find((a) => a.kind === 'rozetka').employeeId, t.service.resolveEmployee('Настя').id);
+    r = await t.call('POST', '/api/settings/accounts/import', { script: "const ROZETKA_ACCOUNTS = [\n  { name: 'Rozetka', token: 'rz' }\n];", employee: 'Товкес' });
+    assert.strictEqual(r.body.added, 0);
+    assert.strictEqual(r.body.accounts.find((a) => a.kind === 'rozetka').employeeId, null);
   } finally { await t.cleanup(); }
 });
 

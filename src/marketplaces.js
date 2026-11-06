@@ -135,6 +135,26 @@ const prom = {
   date(o) { return dateOf(o.date_created); },
   product(o) { return (Array.isArray(o.products) ? o.products : []).map((p) => p.name).filter(Boolean).join('; '); },
   orderId(o) { return String(o.id || ''); },
+  ttn(o) { const d = o.delivery_provider_data || {}, opt = o.delivery_option || {}; return String(d.declaration_number || d.ttn || opt.declaration_id || opt.tracking_id || o.ttn || '').trim(); },
+  done(o) { return String(o.status || '').toLowerCase() === 'delivered' || /виконан|доставлен|получен/i.test(o.status_name || ''); },
+  // Замовлення за період створення: date_from/date_to + гортання за last_id.
+  async list(account, { from, to, fetch: fetchFn }) {
+    const out = [];
+    let cursor = null, pages = 0;
+    while (pages < MAX_PAGES) {
+      const params = ['limit=100', 'date_from=' + encodeURIComponent(from + 'T00:00:00'), 'date_to=' + encodeURIComponent(shiftDays(to, 1) + 'T00:00:00')];
+      if (cursor) params.push('last_id=' + encodeURIComponent(cursor));
+      const json = await getJson(fetchFn, `${PROM_URL}/orders/list?${params.join('&')}`, account.token, 'Prom.ua');
+      if (json.errors) throw new Error('Prom.ua: ' + (typeof json.errors === 'string' ? json.errors : JSON.stringify(json.errors)));
+      const items = Array.isArray(json.orders) ? json.orders : [];
+      out.push(...items);
+      pages++;
+      const last = items.length ? items[items.length - 1] : null;
+      if (items.length < 100 || !last || last.id == null) break;
+      cursor = last.id;
+    }
+    return out;
+  },
 };
 
 // ---------- Rozetka ----------
@@ -173,6 +193,25 @@ const rozetka = {
   date(o) { return dateOf(o.created); },
   product(o) { return (Array.isArray(o.purchases) ? o.purchases : []).map((p) => p.item_name).filter(Boolean).join('; '); },
   orderId(o) { return String(o.id || ''); },
+  ttn(o) { const d = o.delivery || {}; return String(o.ttn || d.ttn || d.document_number || d.tracking_number || '').trim(); },
+  done(o) { return /виконано|доставлено|отримано|выполнен|доставлен|получен/i.test(rozetka.status(o)); },
+  async list(account, { from, to, fetch: fetchFn }) {
+    const out = [];
+    let page = 1;
+    while (page <= MAX_PAGES) {
+      const params = [`page=${page}`, 'types=1', 'sort=-id', 'pageSize=100', 'created_from=' + from, 'created_to=' + to, 'expand=' + encodeURIComponent('status_data,delivery,purchases')];
+      const json = await getJson(fetchFn, `${ROZETKA_URL}/orders/search?${params.join('&')}`, account.token, 'Rozetka');
+      if (!json.success) throw new Error('Rozetka: ' + rozetkaError(json));
+      const content = json.content || {};
+      const items = Array.isArray(content.orders) ? content.orders : [];
+      out.push(...items);
+      const meta = content._meta || json._meta || {};
+      const pageCount = Math.max(1, parseInt(meta.pageCount, 10) || 1);
+      if (page >= pageCount || !items.length) break;
+      page++;
+    }
+    return out;
+  },
 };
 function rozetkaError(json) {
   const e = json && json.errors;
@@ -226,6 +265,23 @@ const epicentr = {
   date(o) { return dateOf(o.createdAt); },
   product(o) { return (Array.isArray(o.items) ? o.items : []).map((i) => i.title || i.name).filter(Boolean).join('; '); },
   orderId(o) { return String(o.number || o.id || ''); },
+  ttn(o) { return String((o.address && o.address.shipment && o.address.shipment.number) || '').trim(); },
+  done(o) { return ['received', 'completed', 'closed'].includes(String(o.statusCode || '').trim()); },
+  // Курсорне гортання від нових до старих, доки не стали старіші за from.
+  async list(account, { from, to, fetch: fetchFn }) {
+    const out = [];
+    let cursor = null, pages = 0;
+    const seen = new Set();
+    while (pages < MAX_PAGES) {
+      const page = await epicentr.fetchPage(account, cursor, { fetch: fetchFn, seen });
+      pages++;
+      for (const o of page.items) { const d = epicentr.date(o); if (d && d >= from && d <= to) out.push(o); }
+      const ds = page.items.map((o) => epicentr.date(o)).filter(Boolean);
+      if (!page.next || (ds.length && ds.every((d) => d < from))) break;
+      cursor = page.next;
+    }
+    return out;
+  },
 };
 
 const CHANNELS = { prom, rozetka, epicentr };
@@ -233,8 +289,27 @@ const CHANNELS = { prom, rozetka, epicentr };
 function describe(ch, o, account) {
   return {
     kind: ch.kind, channel: account.name, orderId: ch.orderId(o), status: ch.status(o), problem: ch.problem(o),
-    amount: ch.amount(o), date: ch.date(o), product: ch.product(o),
+    amount: ch.amount(o), date: ch.date(o), product: ch.product(o), ttn: ch.ttn(o), done: ch.done(o),
   };
+}
+
+// Усі замовлення кабінетів за період [from, to] (дата створення замовлення).
+// Повертає {items: [describe + employeeId], errors}. Дублікати (один TTN у двох кабінетах) не зливаються.
+async function listOrders(accounts, { from, to, fetch: fetchFn } = {}) {
+  fetchFn = fetchFn || globalThis.fetch;
+  const items = [], errors = [];
+  for (const account of accounts) {
+    const ch = CHANNELS[account.kind];
+    if (!ch || !account.token) continue;
+    try {
+      for (const o of await ch.list(account, { from, to, fetch: fetchFn })) {
+        const d = ch.date(o);
+        if (d && (d < from || d > to)) continue;
+        items.push(Object.assign(describe(ch, o, account), { employeeId: account.employeeId == null ? null : Number(account.employeeId) }));
+      }
+    } catch (e) { errors.push(`${account.name}: ${e.message || e}`); }
+  }
+  return { items, errors };
 }
 
 // pending: [{number, date?}] — date (якщо відома) звужує період гортання.
@@ -342,6 +417,6 @@ function parseScriptAccounts(text) {
 }
 
 module.exports = {
-  KINDS, MP_ORDER, PROBLEM_PRIORITY, CHANNELS, findOrders, rozetkaDelivery, testAccount, parseScriptAccounts,
+  KINDS, MP_ORDER, PROBLEM_PRIORITY, CHANNELS, findOrders, listOrders, rozetkaDelivery, testAccount, parseScriptAccounts,
   lookupKeys, rozetkaDeliveryId, problemByText, parseMoney, normalizeKey, dateOf, shiftDays,
 };

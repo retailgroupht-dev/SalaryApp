@@ -5,7 +5,7 @@ const STATUS = { ok: 'Виконано', refused: 'Відмова', cancelled: '
 const $ = (sel) => document.querySelector(sel);
 let data = { settings: {}, employees: [], orders: [] };
 let info = {};
-const state = { salaryPeriod: null, detailEmployee: null, selected: new Set(), formNp: null };
+const state = { salaryPeriod: null, detailEmployee: null, selected: new Set(), formNp: null, shipments: [], shSelected: new Set() };
 // Підпис до статусу: що сказали джерела (Нова Пошта, маркетплейс, Rozetka Delivery).
 const trackTitle = (o) => (o.track && o.track.note ? `${o.track.note}. Перевірено ${o.track.checked || ''}` : '');
 const KIND_NAMES = { np: 'Нова Пошта', prom: 'Prom.ua', rozetka: 'Rozetka', epicentr: 'Епіцентр' };
@@ -36,7 +36,7 @@ function fillPeriodSelect(sel, current, allLabel) {
 
 function fillEmployeeSelect(sel, withAll) {
   const cur = sel.value;
-  sel.innerHTML = (withAll ? '<option value="">Усі</option>' : '') + data.employees.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+  sel.innerHTML = (withAll ? `<option value="">${withAll === 'shared' ? 'Усі (спільний)' : 'Усі'}</option>` : '') + data.employees.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
 }
 
@@ -154,9 +154,33 @@ function renderAccounts(tests) {
   const list = data.settings.accounts || [];
   $('#accountsTable tbody').innerHTML = list.map((a, i) => {
     const t = tests && tests[i];
-    return `<tr data-i="${i}"><td>${KIND_NAMES[a.kind] || a.kind}</td><td>${esc(a.name)}</td><td class="nowrap" title="${esc(a.token)}">…${esc(a.token.slice(-6))}</td>
+    const empSel = `<select class="acc-emp" data-i="${i}"><option value="">Усі (спільний)</option>${data.employees.map((e) => `<option value="${e.id}" ${a.employeeId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>`;
+    return `<tr data-i="${i}"><td>${KIND_NAMES[a.kind] || a.kind}</td><td>${esc(a.name)}</td><td>${empSel}</td><td class="nowrap" title="${esc(a.token)}">…${esc(a.token.slice(-6))}</td>
     <td class="${t ? (t.ok ? 'ok' : 'err') : ''}">${t ? esc(t.message) : ''}</td><td><button class="small danger secondary acc-del" data-i="${i}">Видалити</button></td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="hint">Кабінетів немає. Додайте ключ або імпортуйте зі скрипта таблиці.</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="hint">Кабінетів немає. Додайте ключ або імпортуйте зі скрипта таблиці.</td></tr>';
+  fillEmployeeSelect($('#accEmployee'), 'shared');
+  fillEmployeeSelect($('#accImportEmployee'), 'shared');
+}
+
+// ---------- Відправлення ----------
+function renderShipments() {
+  fillEmployeeSelect($('#shEmployee'), true);
+  const sel = $('#shPeriod');
+  if (!sel.options.length) {
+    const d = new Date(); const ms = [];
+    for (let i = 0; i < 8; i++) { ms.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d.setMonth(d.getMonth() - 1); }
+    sel.innerHTML = ms.map((m) => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+  }
+  const list = state.shipments;
+  $('#shTable tbody').innerHTML = list.map((it, i) => `<tr>
+    <td><input type="checkbox" class="sh-sel" data-i="${i}" ${state.shSelected.has(i) ? 'checked' : ''}></td>
+    <td class="nowrap">${it.date}</td><td>${esc(it.employee)}</td><td class="nowrap">${esc(it.channel)}</td>
+    <td><div class="clip" title="${esc(it.product)}">${esc(it.product)}</div></td><td class="nowrap" title="${esc(it.orderId)}">${esc(it.number)}</td>
+    <td class="num">${fmt(it.amount)}</td><td><span class="badge ${it.status}" title="${esc(it.note)}">${STATUS[it.status] || it.status}</span></td>
+    <td>${it.inBase ? 'так' : ''}</td></tr>`).join('')
+    || '<tr><td colspan="9" class="hint">Нічого не зібрано.</td></tr>';
+  $('#shAdd').disabled = !state.shSelected.size;
+  $('#shAdd').textContent = state.shSelected.size ? `Додати в замовлення (${state.shSelected.size})` : 'Додати в замовлення';
 }
 
 async function renderApiStatus() {
@@ -226,7 +250,7 @@ function setUpdateStatus(u) {
 }
 
 // ---------- Загальне ----------
-function renderAll() { renderSalary(); renderOrders(); renderEmployees(); renderSettings(); }
+function renderAll() { renderSalary(); renderOrders(); renderShipments(); renderEmployees(); renderSettings(); }
 
 async function reload(d) { data = d || await window.api.getData(); renderAll(); }
 
@@ -332,6 +356,58 @@ function bind() {
     } catch (e) { info.textContent = 'Помилка: ' + errMsg(e); }
   });
 
+  // Вставка з таблиці
+  const pasteStatus = (msg, cls) => { const el = $('#pasteStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
+  $('#pasteBtn').addEventListener('click', async () => {
+    const text = $('#pasteText').value;
+    if (!text.trim()) return pasteStatus('Вставте рядки з таблиці', 'err');
+    pasteStatus('Шукаю в Новій Пошті та на маркетплейсах…'); $('#pasteBtn').disabled = true;
+    try {
+      const r = await window.api.importPaste(text);
+      const parts = [`Рядків: ${r.parsed}. Додано: ${r.added}, оновлено: ${r.updated}.`];
+      if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
+      if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);
+      if (r.unknown.length) parts.push(`Пропущено рядків: ${r.unknown.length} (${r.unknown.slice(0, 3).map((u) => `«${u.line.slice(0, 40)}» — ${u.reason}`).join('; ')}${r.unknown.length > 3 ? '…' : ''}).`);
+      if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
+      pasteStatus(parts.join(' '), r.added + r.updated ? 'ok' : 'err');
+      if (r.added + r.updated) $('#pasteText').value = '';
+      reload(r.data);
+    } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
+    finally { $('#pasteBtn').disabled = false; }
+  });
+
+  // Відправлення
+  const shStatus = (msg, cls) => { const el = $('#shStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
+  $('#shCollect').addEventListener('click', async () => {
+    shStatus('Збираю з кабінетів і звіряю з Новою Поштою… (до кількох хвилин)'); $('#shCollect').disabled = true;
+    try {
+      const r = await window.api.shipmentsCollect({ employee: $('#shEmployee').value || undefined, period: $('#shPeriod').value });
+      state.shipments = r.items; state.shSelected = new Set(r.items.map((_, i) => i)); $('#shSelectAll').checked = true;
+      const sum = r.items.filter((x) => x.status === 'ok').reduce((a, x) => a + (Number(x.amount) || 0), 0);
+      const parts = [`Зібрано: ${r.items.length} (виконано ${r.items.filter((x) => x.status === 'ok').length} на ${fmt(sum)}, уже в базі ${r.items.filter((x) => x.inBase).length}).`];
+      if (r.errors.length) parts.push(`Помилки: ${r.errors.join('; ')}.`);
+      shStatus(parts.join(' '), r.errors.length ? 'err' : 'ok');
+      renderShipments();
+    } catch (e) { shStatus('Помилка: ' + errMsg(e), 'err'); }
+    finally { $('#shCollect').disabled = false; }
+  });
+  $('#shTable tbody').addEventListener('change', (e) => {
+    const cb = e.target.closest('input.sh-sel'); if (!cb) return;
+    const i = Number(cb.dataset.i); if (cb.checked) state.shSelected.add(i); else state.shSelected.delete(i);
+    renderShipments();
+  });
+  $('#shSelectAll').addEventListener('change', (e) => { state.shSelected = new Set(e.target.checked ? state.shipments.map((_, i) => i) : []); renderShipments(); });
+  $('#shAdd').addEventListener('click', async () => {
+    const items = [...state.shSelected].map((i) => state.shipments[i]).filter(Boolean);
+    if (!items.length) return;
+    try {
+      const r = await window.api.shipmentsAdd(items);
+      shStatus(`Додано: ${r.added}, оновлено: ${r.updated}.`, 'ok');
+      for (const it of items) it.inBase = true;
+      reload(r.data);
+    } catch (e) { shStatus('Помилка: ' + errMsg(e), 'err'); }
+  });
+
   $('#addOrder').addEventListener('click', () => openOrderForm(null));
   $('#ordersTable tbody').addEventListener('click', (e) => {
     const btn = e.target.closest('button.edit');
@@ -395,9 +471,15 @@ function bind() {
   $('#accAdd').addEventListener('click', async () => {
     const token = $('#accToken').value.trim();
     if (!token) return accStatus('Вставте ключ', 'err');
-    await saveAccounts([...(data.settings.accounts || []), { kind: $('#accKind').value, name: $('#accName').value.trim(), token }]);
+    await saveAccounts([...(data.settings.accounts || []), { kind: $('#accKind').value, name: $('#accName').value.trim(), token, employeeId: $('#accEmployee').value ? Number($('#accEmployee').value) : null }]);
     $('#accToken').value = ''; $('#accName').value = '';
     accStatus('Кабінет додано', 'ok');
+  });
+  $('#accountsTable tbody').addEventListener('change', async (e) => {
+    const sel = e.target.closest('select.acc-emp'); if (!sel) return;
+    const list = (data.settings.accounts || []).map((a) => Object.assign({}, a));
+    list[Number(sel.dataset.i)].employeeId = sel.value ? Number(sel.value) : null;
+    await saveAccounts(list);
   });
   $('#accountsTable tbody').addEventListener('click', async (e) => {
     const btn = e.target.closest('button.acc-del'); if (!btn) return;
@@ -415,7 +497,7 @@ function bind() {
   $('#accImportToggle').addEventListener('click', () => $('#accImport').classList.toggle('hidden'));
   $('#accImportBtn').addEventListener('click', async () => {
     try {
-      const r = await window.api.accountsImport($('#accScript').value);
+      const r = await window.api.accountsImport({ text: $('#accScript').value, employeeId: $('#accImportEmployee').value ? Number($('#accImportEmployee').value) : null });
       data.settings = r.settings; renderAccounts(); $('#accScript').value = ''; $('#accImport').classList.add('hidden');
       accStatus(`Знайдено ключів у скрипті: ${r.parsed}, додано нових: ${r.added}`, 'ok');
     } catch (e) { accStatus('Помилка: ' + errMsg(e), 'err'); }

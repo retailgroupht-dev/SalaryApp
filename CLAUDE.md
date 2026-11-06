@@ -25,7 +25,11 @@
 - `src/lookup.js` — зведення джерел за правилами скрипта: сума з маркетплейсу (інакше НП),
   проблема ОТКАЗ > ВОЗВРАТ > ОТМЕНА з будь-якого джерела, перевізник перебиває маркетплейс,
   ніде немає → nodata, НП ще не видала → checking (у таблиці такі рядки вже «ОК» — свідома відмінність).
-  Кабінети — `settings.accounts: [{kind: np|prom|rozetka|epicentr, name, token}]`, назва = канал.
+  Кабінети — `settings.accounts: [{kind: np|prom|rozetka|epicentr, name, token, employeeId}]`, назва = канал;
+  `employeeId` null = спільний, інакше замовлення працівника шукаються лише його кабінетами + спільними.
+  Вкладка «Відправлення» (`collectShipments`): усі замовлення кабінетів за місяць (`marketplaces.listOrders`:
+  Prom date_from/to, Rozetka created_from/to, Епіцентр курсор до дати) + звірка з НП, кнопка додає в замовлення.
+  Вставка з таблиці (`addPasted`): три колонки товар/ТТН/працівник у будь-якому порядку.
 - `src/store.js` — усі дані в одному `data.json` у теці користувача
   (Win `%APPDATA%\SalaryApp\`, Mac `~/Library/Application Support/SalaryApp/`; дані зі старої теки
   «Розрахунок зарплат» переносяться при першому запуску). Іконка — `build/icon.png` (генерує `build/make-icon.js`).
@@ -47,6 +51,7 @@
 `DELETE /api/orders/:id`, `POST /api/import` (`{employee, url}` або `{employee, csv}`),
 `GET /api/track?numbers=` (подивитися), `POST /api/track` (`{employee, numbers}` — додати за номером),
 `POST /api/track/refresh` (`{ids}` або фільтри, `withDate`) — перевірити наявні,
+`POST /api/import/paste` (`{text}`), `GET /api/shipments?employee=&period=`, `POST /api/shipments/add`,
 `POST /api/settings/accounts/import` (`{script}`), `GET /api/settings/accounts/test`,
 `GET /api/export?format=xlsx|csv&period=`, `GET|PUT /api/data` (резервна копія),
 `GET|PUT /api/settings`, `GET /api/docs`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.

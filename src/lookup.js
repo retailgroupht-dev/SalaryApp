@@ -70,10 +70,14 @@ function combine(number, npR, mpR, rdR) {
     if (hits.length) { problem = w; problemLabel = hits.map((h) => h.label).join(', '); break; }
   }
   const found = !!(mpR || npOk || rdOk);
+  // Виконано — лише коли перевізник підтвердив видачу (НП: отримано; Rozetka Delivery: доставлено/вручено).
+  // Без даних перевізника — за статусом маркетплейсу (done), а без нього — виконано.
   let status;
   if (problem) status = STATUS_BY_PROBLEM[problem];
   else if (!found) status = 'nodata';
-  else if (npOk && !npR.received) status = 'checking';
+  else if (npOk) status = npR.received ? 'ok' : 'checking';
+  else if (rdOk) status = /доставлен|вручен|отриман|одержан|получен/i.test(rdR.status) ? 'ok' : 'checking';
+  else if (mpR && mpR.done === false) status = 'checking';
   else status = 'ok';
 
   const amount = mpR && mpR.amount > 0 ? mpR.amount : (npOk && npR.amount != null ? npR.amount : null);
@@ -96,4 +100,11 @@ function combine(number, npR, mpR, rdR) {
   };
 }
 
-module.exports = { lookup, combine, plan };
+// 'YYYY-MM' → {from: 'YYYY-MM-01', to: останній день}.
+function monthRange(period) {
+  const [y, m] = period.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${period}-01`, to: `${period}-${String(last).padStart(2, '0')}` };
+}
+
+module.exports = { lookup, combine, plan, monthRange };

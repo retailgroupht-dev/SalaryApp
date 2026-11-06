@@ -3,7 +3,7 @@
 const lib = require('./lib');
 const np = require('./np');
 const mp = require('./marketplaces');
-const { lookup } = require('./lookup');
+const { lookup, combine, monthRange } = require('./lookup');
 
 function todayLocal() {
   const d = new Date();
@@ -11,7 +11,7 @@ function todayLocal() {
 }
 
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
-const isMonth = (s) => /^\d{4}-\d{2}$/.test(s || '');
+const isMonth = (s) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s || '');
 
 class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -190,25 +190,39 @@ class Service {
   }
 
   // ---------- кабінети (ключі) ----------
+  // Кабінет: {kind, name, token, employeeId}. employeeId null = спільний для всіх працівників.
+  // Той самий ключ у двох працівників (напр. Нова Пошта чи Rozetka в обох таблицях) → спільний.
   cleanAccounts(list) {
     const out = [];
-    const seen = new Set();
+    const byToken = new Map();
+    const empIds = new Set(this.data.employees.map((e) => e.id));
     for (const a of Array.isArray(list) ? list : []) {
       const kind = String(a.kind || '').trim();
       const token = String(a.token || a.key || '').trim();
-      if (!mp.KINDS[kind] || !token || seen.has(kind + '|' + token)) continue;
-      seen.add(kind + '|' + token);
+      if (!mp.KINDS[kind] || !token) continue;
+      const employeeId = a.employeeId != null && a.employeeId !== '' && empIds.has(Number(a.employeeId)) ? Number(a.employeeId) : null;
+      const key = kind + '|' + token;
+      const dup = byToken.get(key);
+      if (dup) { if (dup.employeeId !== employeeId) dup.employeeId = null; continue; }
       const base = String(a.name || '').trim() || mp.KINDS[kind];
       let name = base, i = 2;
       while (out.some((x) => x.name.toLowerCase() === name.toLowerCase())) name = `${base} (${i++})`;
-      out.push({ kind, name, token });
+      const acc = { kind, name, token, employeeId };
+      byToken.set(key, acc);
+      out.push(acc);
     }
     return out;
   }
 
+  // Кабінети, якими шукати замовлення працівника: його власні + спільні.
+  accountsFor(employeeId) {
+    return this.data.settings.accounts.filter((a) => a.employeeId == null || a.employeeId === Number(employeeId));
+  }
+
   // Ключі з тексту Apps Script таблиць (NOVA_POSHTA_ACCOUNTS, PROM_ACCOUNTS, …) — додаються до наявних.
-  importAccountsFromScript(text) {
-    const parsed = mp.parseScriptAccounts(text);
+  importAccountsFromScript(text, employee) {
+    const emp = employee != null && employee !== '' ? this.requireEmployee(employee) : null;
+    const parsed = mp.parseScriptAccounts(text).map((a) => Object.assign(a, { employeeId: emp ? emp.id : null }));
     if (!parsed.length) throw new ApiError(400, 'У тексті не знайдено жодного ключа (очікую масиви NOVA_POSHTA_ACCOUNTS, PROM_ACCOUNTS, EPICENTER_ACCOUNTS, ROZETKA_ACCOUNTS)');
     const before = this.data.settings.accounts.length;
     this.data.settings.accounts = this.cleanAccounts([...this.data.settings.accounts, ...parsed]);
@@ -234,10 +248,12 @@ class Service {
 
   // ---------- пошук за номером (Нова Пошта + маркетплейси) ----------
   // Без запису в базу: {results: [...], errors: [..]}.
-  async trackNumbers(numbers) {
+  // employeeId — шукати лише його кабінетами (+ спільними); без нього — усіма.
+  async trackNumbers(numbers, employeeId) {
     const list = [...new Set((Array.isArray(numbers) ? numbers : String(numbers || '').split(/[\s,;]+/)).map((n) => String(n || '').trim()).filter(Boolean))];
     if (!list.length) return { results: new Map(), errors: [] };
-    try { return await lookup(list, this.data.settings.accounts, { fetch: this.fetch }); }
+    const accounts = employeeId != null ? this.accountsFor(employeeId) : this.data.settings.accounts;
+    try { return await lookup(list, accounts, { fetch: this.fetch }); }
     catch (e) { throw new ApiError(502, e.message || String(e)); }
   }
 
@@ -255,9 +271,10 @@ class Service {
 
   // Додати замовлення за номерами (ТТН, PRM-…, номер замовлення): статус, сума, дата, канал — з джерел.
   // Повтор за «працівник + номер» оновлюється, а не дублюється.
-  async addByTtn({ employee, employeeId, numbers, channel, product } = {}) {
+  // products: {номер → назва товару} (необов’язково, для вставки з таблиці).
+  async addByTtn({ employee, employeeId, numbers, channel, product, products } = {}) {
     const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
-    const { results, errors } = await this.trackNumbers(numbers);
+    const { results, errors } = await this.trackNumbers(numbers, emp.id);
     const res = { added: 0, updated: 0, notFound: [], noAmount: [], errors, orders: [] };
     for (const [number, t] of results) {
       if (!t.found) { res.notFound.push(number); }
@@ -265,7 +282,7 @@ class Service {
       if (o) { if (this.applyTracking(o, t)) res.updated++; }
       else {
         if (!t.found) continue;
-        o = this.normalizeOrder({ employeeId: emp.id, number, product: product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
+        o = this.normalizeOrder({ employeeId: emp.id, number, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
         this.data.orders.push(o);
@@ -287,10 +304,14 @@ class Service {
     const withNumber = orders.filter((o) => o.number);
     res.skipped = orders.length - withNumber.length;
     if (!withNumber.length) return res;
-    const { results, errors } = await this.trackNumbers(withNumber.map((o) => o.number));
-    res.errors = errors;
+    const results = new Map();
+    for (const empId of new Set(withNumber.map((o) => o.employeeId))) {
+      const r = await this.trackNumbers(withNumber.filter((o) => o.employeeId === empId).map((o) => o.number), empId);
+      for (const [n, t] of r.results) results.set(empId + '|' + n, t);
+      res.errors.push(...r.errors);
+    }
     for (const o of withNumber) {
-      const t = results.get(o.number);
+      const t = results.get(o.employeeId + '|' + o.number);
       if (!t) continue;
       res.checked++;
       if (!t.found) res.notFound.push(o.number);
@@ -302,6 +323,109 @@ class Service {
     }
     this.store.save();
     return res;
+  }
+
+  // ---------- вставка з таблиці ----------
+  // Текст, скопійований із трьох колонок Google Таблиці (товар, ТТН/номер, працівник) у будь-якому
+  // порядку: колонки розділені табуляцією. Повертає {rows: [{product, number, employee}], unknown: [...]}.
+  parsePasted(text) {
+    const rows = [], unknown = [];
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      const cells = raw.split('\t').map((c) => c.trim());
+      if (!cells.some(Boolean)) continue;
+      let number = '', emp = null, product = '';
+      const rest = [];
+      for (const c of cells) {
+        if (!c) continue;
+        if (!number && (np.isTtn(c) || /^PRM[-\s]?\d{6,}$/i.test(c) || /^\d{6,20}$/.test(c))) { number = c.replace(/\s+/g, ''); continue; }
+        const e = !emp && this.resolveEmployee(c);
+        if (e) { emp = e; continue; }
+        rest.push(c);
+      }
+      product = rest.join(' ');
+      if (!number) { unknown.push({ line: raw, reason: 'немає номера ТТН' }); continue; }
+      if (!emp) { unknown.push({ line: raw, reason: 'не впізнано працівника' }); continue; }
+      rows.push({ product, number, employeeId: emp.id, employee: emp.name });
+    }
+    return { rows, unknown };
+  }
+
+  async addPasted(text) {
+    const { rows, unknown } = this.parsePasted(text);
+    if (!rows.length && !unknown.length) throw new ApiError(400, 'Порожній текст');
+    const res = { parsed: rows.length, added: 0, updated: 0, notFound: [], noAmount: [], errors: [], unknown };
+    for (const empId of new Set(rows.map((r) => r.employeeId))) {
+      const mine = rows.filter((r) => r.employeeId === empId);
+      const products = {};
+      for (const r of mine) if (r.product) products[r.number] = r.product;
+      const r = await this.addByTtn({ employeeId: empId, numbers: mine.map((x) => x.number), products });
+      res.added += r.added; res.updated += r.updated;
+      res.notFound.push(...r.notFound); res.noAmount.push(...r.noAmount); res.errors.push(...r.errors);
+    }
+    return res;
+  }
+
+  // ---------- відправлення з кабінетів ----------
+  // Усе, що створено в кабінетах маркетплейсів за місяць period (працівника або всіх),
+  // звірене з Новою Поштою. Нічого не записує. Повертає {items, errors}.
+  async collectShipments({ employee, period } = {}) {
+    if (!isMonth(period)) throw new ApiError(400, 'Період має бути у форматі YYYY-MM');
+    const { from, to } = monthRange(period);
+    const emp = employee ? this.requireEmployee(employee) : null;
+    const employees = emp ? [emp] : this.data.employees;
+    const items = [], errors = [];
+    for (const e of employees) {
+      const accounts = this.accountsFor(e.id);
+      const mpAccounts = accounts.filter((a) => a.kind !== 'np');
+      if (!mpAccounts.length) continue;
+      const r = await mp.listOrders(mpAccounts, { from, to, fetch: this.fetch });
+      errors.push(...r.errors.map((x) => `${e.name}: ${x}`));
+      // Спільний кабінет видно всім працівникам: їхні замовлення розрізняти нема як, тож
+      // замовлення спільного кабінету показуються лише коли вибрано одного працівника.
+      const own = r.items.filter((it) => it.employeeId === e.id || (emp && it.employeeId == null));
+      const ttns = own.map((it) => it.ttn).filter((t) => np.isTtn(t));
+      let npFound = new Map();
+      if (ttns.length) {
+        try { const t = await np.track(ttns, { accounts: accounts.filter((a) => a.kind === 'np'), fetch: this.fetch }); npFound = t.found; errors.push(...t.errors); }
+        catch (err) { errors.push(`${e.name}: ${err.message || err}`); }
+      }
+      const rdIds = own.map((it) => mp.rozetkaDeliveryId(it.ttn)).filter(Boolean);
+      const rdFound = rdIds.length ? await mp.rozetkaDelivery(rdIds, { fetch: this.fetch }) : new Map();
+      for (const it of own) {
+        const number = it.ttn || `${it.kind}-${it.orderId}`;
+        const c = combine(number, npFound.get(it.ttn), it, rdFound.get(mp.rozetkaDeliveryId(it.ttn)));
+        const existing = this.data.orders.find((o) => o.employeeId === e.id && o.number === number);
+        items.push({
+          employeeId: e.id, employee: e.name, number, ttn: it.ttn, orderId: it.orderId, channel: it.channel, kind: it.kind,
+          product: it.product, amount: c.amount != null ? c.amount : it.amount, date: it.date, status: c.status, problem: c.problem,
+          mpStatus: it.status, note: c.note, track: { np: c.np, mp: c.mp, rd: c.rd }, inBase: existing ? existing.id : null,
+        });
+      }
+    }
+    items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    return { items, period, from, to, errors };
+  }
+
+  // Додати зібрані відправлення в замовлення (повтор за «працівник + номер» оновлюється).
+  addShipments(items) {
+    let added = 0, updated = 0;
+    for (const it of Array.isArray(items) ? items : []) {
+      const emp = this.resolveEmployee(it.employeeId);
+      const number = String(it.number || '').trim();
+      if (!emp || !number) continue;
+      const t = { status: lib.STATUS[it.status] ? it.status : 'checking', amount: it.amount == null ? null : Number(it.amount), channel: it.channel, product: it.product, date: it.date, note: it.note || '', problem: it.problem || '', np: it.track && it.track.np, mp: it.track && it.track.mp, rd: it.track && it.track.rd };
+      let o = this.data.orders.find((x) => x.employeeId === emp.id && x.number === number);
+      if (o) { if (this.applyTracking(o, t, { withDate: true })) updated++; }
+      else {
+        o = this.normalizeOrder({ employeeId: emp.id, number, product: it.product, channel: it.channel, status: t.status, amount: t.amount || 0, date: it.date });
+        o.id = this.store.nextId();
+        this.applyTracking(o, t);
+        this.data.orders.push(o);
+        added++;
+      }
+    }
+    this.store.save();
+    return { added, updated };
   }
 
   // ---------- розрахунок і експорт ----------

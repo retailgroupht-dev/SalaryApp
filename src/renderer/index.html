@@ -11,6 +11,7 @@
     <div class="brand">SalaryApp<div class="brand-sub">розрахунок зарплат</div></div>
     <button class="nav active" data-tab="salary">Зарплата</button>
     <button class="nav" data-tab="orders">Замовлення</button>
+    <button class="nav" data-tab="shipments">Відправлення</button>
     <button class="nav" data-tab="employees">Працівники</button>
     <button class="nav" data-tab="settings">Налаштування</button>
     <div class="spacer"></div>
@@ -69,6 +70,14 @@
         <p class="hint" style="margin-bottom:0">Статус, сума, дата продажу, канал і товар підтягуються з Нової Пошти та кабінетів Prom / Rozetka / Епіцентр (Налаштування → Кабінети), за тими ж правилами, що й скрипт у таблицях. Якщо замовлення є лише в Новій Пошті без ключа відправника, суми не буде — вкажіть вручну.</p>
       </div>
       <div class="panel">
+        <h2>Вставити з таблиці</h2>
+        <div class="row">
+          <label class="grow">Скопіюйте в таблиці три колонки (товар, ТТН, продажник) і вставте сюди; порядок колонок неважливий <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#9;Настя&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
+          <button id="pasteBtn">Додати й перевірити</button>
+        </div>
+        <div id="pasteStatus" class="status"></div>
+      </div>
+      <div class="panel">
         <h2>Імпорт із Google Таблиці</h2>
         <div class="row">
           <label>Працівник <select id="importEmployee"></select></label>
@@ -96,6 +105,26 @@
     </section>
 
     <!-- Працівники -->
+    <!-- Відправлення з кабінетів -->
+    <section id="tab-shipments" class="tab">
+      <header>
+        <h1>Відправлення</h1>
+        <div class="toolbar">
+          <label>Працівник <select id="shEmployee"><option value="">Усі</option></select></label>
+          <label>Місяць <select id="shPeriod"></select></label>
+          <button id="shCollect">Зібрати з кабінетів</button>
+          <button id="shAdd" class="secondary" disabled>Додати в замовлення</button>
+        </div>
+      </header>
+      <p class="hint">Усе, що створено в кабінетах Prom / Rozetka / Епіцентр працівника за місяць, звірене з Новою Поштою. Нічого вручну додавати не треба: натисніть «Зібрати», перегляньте й додайте в замовлення — вони потраплять у розрахунок зарплати. Повторне додавання лише оновлює статуси. Замовлення спільних кабінетів (ключ без працівника) показуються лише коли вибрано одного працівника.</p>
+      <div id="shStatus" class="status"></div>
+      <table id="shTable" class="grid fixed">
+        <colgroup><col style="width:36px"><col style="width:100px"><col style="width:100px"><col style="width:90px"><col><col style="width:140px"><col style="width:90px"><col style="width:118px"><col style="width:70px"></colgroup>
+        <thead><tr><th><input type="checkbox" id="shSelectAll" checked></th><th>Дата</th><th>Працівник</th><th>Канал</th><th>Товар</th><th>Номер / ТТН</th><th class="num">Сума</th><th>Статус</th><th>У базі</th></tr></thead>
+        <tbody><tr><td colspan="9" class="hint">Оберіть працівника й місяць і натисніть «Зібрати з кабінетів».</td></tr></tbody>
+      </table>
+    </section>
+
     <section id="tab-employees" class="tab">
       <header>
         <h1>Працівники</h1>
@@ -122,14 +151,15 @@
       </div>
       <div class="panel">
         <h2>Кабінети: Нова Пошта і маркетплейси</h2>
-        <p class="hint">Ключі API кабінетів, у яких застосунок шукає замовлення за номером: звідти беруться статус, сума, дата продажу й канал (назва кабінету). Нова Пошта без ключа віддає лише статус і дати. Найпростіше — вставити код Apps Script з таблиці (Розширення → Apps Script): ключі з нього підхопляться самі.</p>
+        <p class="hint">Ключі API кабінетів, у яких застосунок шукає замовлення за номером: звідти беруться статус, сума, дата продажу й канал (назва кабінету). Нова Пошта без ключа віддає лише статус і дати. Найпростіше — вставити код Apps Script з таблиці (Розширення → Apps Script): ключі з нього підхопляться самі. Кабінет можна прив’язати до працівника: тоді його замовлення шукаються лише там (+ у спільних). Один і той самий ключ у двох працівників стає спільним.</p>
         <table id="accountsTable" class="grid">
-          <thead><tr><th>Канал</th><th>Назва (так підписується канал замовлення)</th><th>Ключ</th><th>Перевірка</th><th></th></tr></thead>
+          <thead><tr><th>Канал</th><th>Назва (так підписується канал замовлення)</th><th>Працівник</th><th>Ключ</th><th>Перевірка</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
         <div class="row" style="margin-top:10px">
           <label>Канал <select id="accKind"><option value="np">Нова Пошта</option><option value="prom">Prom.ua</option><option value="rozetka">Rozetka</option><option value="epicentr">Епіцентр</option></select></label>
           <label>Назва <input id="accName" placeholder="Пром 2"></label>
+          <label>Працівник <select id="accEmployee"><option value="">Усі (спільний)</option></select></label>
           <label class="grow">Ключ / токен <input id="accToken"></label>
           <button id="accAdd" class="secondary">Додати</button>
           <button id="accTest" class="secondary">Перевірити всі</button>
@@ -137,7 +167,7 @@
         </div>
         <div id="accImport" class="hidden" style="margin-top:10px">
           <textarea id="accScript" rows="4" style="width:100%" placeholder="Вставте сюди весь код Apps Script таблиці (Розширення → Apps Script → Ctrl+A, Ctrl+C)"></textarea>
-          <div class="row" style="margin-top:6px"><button id="accImportBtn">Імпортувати ключі</button></div>
+          <div class="row" style="margin-top:6px"><label>Чия це таблиця <select id="accImportEmployee"><option value="">Усі (спільні)</option></select></label><button id="accImportBtn">Імпортувати ключі</button></div>
         </div>
         <div id="accStatus" class="status"></div>
       </div>

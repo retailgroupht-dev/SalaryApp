@@ -101,6 +101,21 @@ test('Rozetka Delivery і перевірка кабінету', async () => {
   assert.match(t.message, /910828670/);
 });
 
+test('маркетплейси: замовлення за період з кабінетів (listOrders)', async () => {
+  const log = [];
+  const r = await mp.listOrders(ACCOUNTS.map((a) => Object.assign({ employeeId: 5 }, a)), { from: '2026-11-01', to: '2026-11-30', fetch: fakeFetch(log) });
+  assert.deepStrictEqual(r.errors, []);
+  const byChannel = {};
+  for (const it of r.items) byChannel[it.channel] = (byChannel[it.channel] || 0) + 1;
+  assert.deepStrictEqual(byChannel, { Rozetka: 1, 'Пром 1': 1, 'Епіцентр': 1 }); // старі жовтневі/травневі Prom не входять
+  const pr = r.items.find((x) => x.channel === 'Пром 1');
+  assert.deepStrictEqual({ ttn: pr.ttn, done: pr.done, employeeId: pr.employeeId, date: pr.date }, { ttn: '20451579375457', done: false, employeeId: 5, date: '2026-11-04' });
+  assert.strictEqual(r.items.find((x) => x.channel === 'Rozetka').ttn, '20451579802951');
+  assert.strictEqual(r.items.find((x) => x.channel === 'Епіцентр').problem, 'ОТМЕНА');
+  assert.ok(log.find((u) => u.includes('my.prom.ua')).includes('date_from=2026-11-01'));
+  assert.ok(log.find((u) => u.includes('rozetka.com.ua')).includes('created_from=2026-11-01'));
+});
+
 test('ключі з Apps Script', () => {
   const script = `
 // оставьте пустой массив: const ROZETKA_ACCOUNTS = []; )
@@ -158,5 +173,12 @@ test('зведення: пріоритети суми й статусу', () => 
   c = combine('PRM-1', null, null, { found: true, status: 'Відмова від одержання', problem: 'ОТКАЗ' });
   assert.deepStrictEqual({ status: c.status, found: c.found }, { status: 'refused', found: true });
   c = combine('PRM-1', null, mpRz, { found: true, status: 'Доставлено', problem: '' });
+  assert.strictEqual(c.status, 'ok');
+  // перевізник ще везе → перевіряється; без перевізника — за статусом маркетплейсу
+  c = combine('PRM-1', null, mpRz, { found: true, status: 'Прямує до відділення', problem: '' });
+  assert.strictEqual(c.status, 'checking');
+  c = combine('n', null, Object.assign({}, mpRz, { done: false }), null);
+  assert.strictEqual(c.status, 'checking');
+  c = combine('n', null, Object.assign({}, mpRz, { done: true }), null);
   assert.strictEqual(c.status, 'ok');
 });

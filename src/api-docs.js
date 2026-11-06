@@ -140,6 +140,21 @@ curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track" \\
 curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track/refresh" -d '{"status":"checking"}'
 \`\`\`
 
+### Вставка з таблиці
+
+\`POST /api/import/paste\` з \`{"text": "…"}\` — рядки, скопійовані з трьох колонок Google Таблиці
+(товар, ТТН або номер, працівник), розділені табуляцією; порядок колонок неважливий: номер
+упізнається за виглядом, працівник — за ім’ям. Для кожного номера робиться пошук як у
+\`POST /api/track\` кабінетами цього працівника. Відповідь \`{parsed, added, updated, notFound, noAmount, errors, unknown: [{line, reason}]}\`.
+
+### Відправлення з кабінетів
+
+Без жодного ручного введення: усе, що створено в кабінетах Prom / Rozetka / Епіцентр за місяць,
+звірене з Новою Поштою.
+
+- \`GET /api/shipments?employee=Настя&period=2026-11\` — лише подивитися: \`{items: [{employeeId, employee, number, ttn, orderId, channel, kind, product, amount, date, status, problem, mpStatus, note, inBase}], errors}\`. Без \`employee\` — усі працівники, але замовлення спільних кабінетів (ключ без працівника) показуються лише для одного вибраного працівника.
+- \`POST /api/shipments/add\` з \`{"employee": "Настя", "period": "2026-11"}\` — зібрати й додати в замовлення (повтори за «працівник + номер» оновлюються). Відповідь \`{added, updated, collected, errors}\`.
+
 ### Імпорт аркуша
 
 \`POST /api/import\` з одним із варіантів тіла:
@@ -170,8 +185,8 @@ curl${auth} -X PUT -H "Content-Type: application/json" "${base}/api/data" --data
 ### Налаштування
 
 - \`GET /api/settings\` — поточні (ставка, збережені посилання на таблиці, параметри API, кабінети з ключами).
-- \`PUT /api/settings\` з \`{"ratePercent": 5}\` — змінити загальну ставку; з \`{"accounts": [{"kind": "np|prom|rozetka|epicentr", "name": "Пром 2", "token": "…"}]}\` — замінити список кабінетів (назва кабінету стає каналом замовлення).
-- \`POST /api/settings/accounts/import\` з \`{"script": "<код Apps Script таблиці>"}\` — додати ключі з масивів \`NOVA_POSHTA_ACCOUNTS\`, \`PROM_ACCOUNTS\`, \`EPICENTER_ACCOUNTS\`, \`ROZETKA_ACCOUNTS\`. Відповідь \`{parsed, added, accounts}\`.
+- \`PUT /api/settings\` з \`{"ratePercent": 5}\` — змінити загальну ставку; з \`{"accounts": [{"kind": "np|prom|rozetka|epicentr", "name": "Пром 2", "token": "…", "employeeId": 5}]}\` — замінити список кабінетів (назва кабінету стає каналом замовлення; \`employeeId\` порожній = спільний кабінет, інакше ним шукаються лише замовлення цього працівника).
+- \`POST /api/settings/accounts/import\` з \`{"script": "<код Apps Script таблиці>", "employee": "Настя"}\` — додати ключі з масивів \`NOVA_POSHTA_ACCOUNTS\`, \`PROM_ACCOUNTS\`, \`EPICENTER_ACCOUNTS\`, \`ROZETKA_ACCOUNTS\`, прив’язавши до працівника (без \`employee\` — спільні). Той самий ключ у двох працівників стає спільним. Відповідь \`{parsed, added, accounts}\`.
 - \`GET /api/settings/accounts/test\` — перевірити всі кабінети: \`[{name, kind, ok, message}]\`.
 
 ### Документація
