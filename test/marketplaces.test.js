@@ -46,6 +46,12 @@ const ACCOUNTS = [
 test('маркетплейси: ключі, дати, гроші, проблеми за текстом', () => {
   assert.deepStrictEqual(mp.lookupKeys('PRM 123456'), ['PRM-123456', 'PRM123456', '123456']);
   assert.strictEqual(mp.rozetkaDeliveryId('prm-700000001'), 'PRM-700000001');
+  // Rozetka через Meest: у клітинці «RMP-243919525 723-4442154», у Rozetka ttn = RMP-243919525
+  assert.deepStrictEqual(mp.parcelCodes('RMP-243919525 723-4442154'), ['RMP-243919525']);
+  assert.ok(mp.lookupKeys('RMP-243919525 723-4442154').includes('RMP-243919525'));
+  assert.deepStrictEqual(mp.searchCandidates('RMP-243919525 723-4442154'), ['RMP-243919525 723-4442154', 'RMP-243919525']);
+  assert.deepStrictEqual(mp.searchCandidates('20451579802951'), ['20451579802951']);
+  assert.strictEqual(mp.rozetkaDeliveryId('RMP-243919525 723-4442154'), 'RMP-243919525');
   assert.strictEqual(mp.rozetkaDeliveryId('20451579802951'), '');
   assert.strictEqual(mp.parseMoney('790 грн'), 790);
   assert.strictEqual(mp.parseMoney('1 234,50'), 1234.5);
@@ -177,6 +183,8 @@ test('зведення: пріоритети суми й статусу', () => 
   // перевізник ще везе → перевіряється; без перевізника — за статусом маркетплейсу
   c = combine('PRM-1', null, mpRz, { found: true, status: 'Прямує до відділення', problem: '' });
   assert.strictEqual(c.status, 'checking');
+  c = combine('RMP-1', null, mpRz, { found: true, status: 'Видано', code: 60030, problem: '' });
+  assert.strictEqual(c.status, 'ok');
   c = combine('n', null, Object.assign({}, mpRz, { done: false }), null);
   assert.strictEqual(c.status, 'checking');
   c = combine('n', null, Object.assign({}, mpRz, { done: true }), null);

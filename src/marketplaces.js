@@ -41,15 +41,29 @@ function addKey(set, value) {
   set.add(k.replace(/-/g, ''));
 }
 
-// Усі правдоподібні ключі з номера у клітинці: рядок цілком, PRM-123, числа 6–20 цифр.
+// Коди посилок у клітинці: PRM-123456 (Rozetka Delivery), RMP-123456 (Rozetka через Meest) тощо.
+function parcelCodes(text) {
+  return (String(text || '').toUpperCase().match(/\b[A-Z]{2,4}[-\s]?\d{6,}\b/g) || []).map((v) => v.replace(/^([A-Z]+)[-\s]?/, '$1-'));
+}
+
+// Усі правдоподібні ключі з номера у клітинці: рядок цілком, коди PRM-/RMP-, числа 6–20 цифр.
 function lookupKeys(text) {
   const src = String(text || '').trim();
   const keys = new Set();
   if (!src) return [];
   addKey(keys, src);
-  for (const v of src.match(/PRM[-\s]?\d+/gi) || []) addKey(keys, v);
+  for (const v of parcelCodes(src)) addKey(keys, v);
   for (const v of src.match(/\d{6,20}/g) || []) addKey(keys, v);
   return [...keys];
+}
+
+// Що пробувати в прямому пошуку Rozetka (?ttn=): рядок цілком, потім коди посилок і 14-значні ТТН.
+function searchCandidates(text) {
+  const src = String(text || '').trim();
+  const out = new Set([src]);
+  for (const v of parcelCodes(src)) out.add(v);
+  for (const v of src.match(/\b\d{14}\b/g) || []) out.add(v);
+  return [...out].filter(Boolean);
 }
 
 function rozetkaDeliveryId(text) {
@@ -341,7 +355,12 @@ async function findOrders(pending, accounts, opts = {}) {
       if (!remaining.size) return { found, errors };
       try {
         if (kind === 'rozetka' && remaining.size <= 25) {
-          for (const number of [...remaining.keys()]) matchItems(ch, account, await ch.searchTtn(account, number, { fetch: fetchFn }));
+          for (const number of [...remaining.keys()]) {
+            for (const cand of searchCandidates(number)) {
+              matchItems(ch, account, await ch.searchTtn(account, cand, { fetch: fetchFn }));
+              if (!remaining.has(number)) break;
+            }
+          }
           continue;
         }
         let cursor = null, pages = 0;
@@ -418,5 +437,5 @@ function parseScriptAccounts(text) {
 
 module.exports = {
   KINDS, MP_ORDER, PROBLEM_PRIORITY, CHANNELS, findOrders, listOrders, rozetkaDelivery, testAccount, parseScriptAccounts,
-  lookupKeys, rozetkaDeliveryId, problemByText, parseMoney, normalizeKey, dateOf, shiftDays,
+  lookupKeys, searchCandidates, parcelCodes, rozetkaDeliveryId, problemByText, parseMoney, normalizeKey, dateOf, shiftDays,
 };

@@ -76,7 +76,7 @@ function combine(number, npR, mpR, rdR) {
   if (problem) status = STATUS_BY_PROBLEM[problem];
   else if (!found) status = 'nodata';
   else if (npOk) status = npR.received ? 'ok' : 'checking';
-  else if (rdOk) status = /доставлен|вручен|отриман|одержан|получен/i.test(rdR.status) ? 'ok' : 'checking';
+  else if (rdOk) status = String(rdR.code) === '60030' || /видан|доставлен|вручен|отриман|одержан|получен/i.test(rdR.status) ? 'ok' : 'checking';
   else if (mpR && mpR.done === false) status = 'checking';
   else status = 'ok';
 
@@ -96,7 +96,7 @@ function combine(number, npR, mpR, rdR) {
     note: (problem ? `${problem} (${problemLabel}); ` : '') + notes.join('; '),
     np: npR ? { status: npR.npStatus, code: npR.npCode, reason: npR.reason, received: npR.dateReceived } : null,
     mp: mpR ? { kind: mpR.kind, channel: mpR.channel, orderId: mpR.orderId, status: mpR.status } : null,
-    rd: rdR ? { status: rdR.status } : null,
+    rd: rdR ? { status: rdR.status, code: rdR.code, date: rdR.date } : null,
   };
 }
 
