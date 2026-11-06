@@ -7,6 +7,14 @@ let data = { settings: {}, employees: [], orders: [] };
 let info = {};
 const state = { salaryPeriod: null, detailEmployee: null, selected: new Set(), formNp: null, shipments: [], shSelected: new Set() };
 // Підпис до статусу: що сказали джерела (Нова Пошта, маркетплейс, Rozetka Delivery).
+// ТТН і № замовлення: клік копіює в буфер; без ТТН — «—».
+const copyCell = (v, title) => (v ? `<span class="copy" data-copy="${esc(v)}" title="${esc(title || v)}. Натисніть, щоб скопіювати">${esc(v)}</span>` : '<span class="muted">—</span>');
+const numCells = (o) => `<td class="nowrap">${copyCell(o.number, 'ТТН')}</td><td class="nowrap">${copyCell(o.orderId, '№ замовлення в кабінеті')}</td>`;
+let toastTimer = null;
+function toast(text) {
+  const el = $('#toast'); el.textContent = text; el.classList.remove('hidden');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('hidden'), 1500);
+}
 const trackTitle = (o) => (o.track && o.track.note ? `${o.track.note}. Перевірено ${o.track.checked || ''}` : '');
 const KIND_NAMES = { np: 'Нова Пошта', prom: 'Prom.ua', rozetka: 'Rozetka', epicentr: 'Епіцентр' };
 
@@ -75,9 +83,9 @@ function renderSalaryDetail() {
   const orders = data.orders.filter((o) => o.employeeId === id && (!state.salaryPeriod || monthOf(o.date) === state.salaryPeriod))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'} (${orders.length})`;
-  box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td><td class="nowrap">${esc(o.number)}</td>
+  box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
     <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
-    || '<tr><td colspan="6" class="hint">Замовлень немає</td></tr>';
+    || '<tr><td colspan="7" class="hint">Замовлень немає</td></tr>';
 }
 
 // ---------- Замовлення ----------
@@ -93,14 +101,14 @@ function renderOrders() {
   if (fStatus.options.length === 1) fStatus.innerHTML += Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
   const emp = Number($('#fEmployee').value) || null, period = fPeriodSel.value, st = fStatus.value, q = $('#fSearch').value.trim().toLowerCase();
   const list = data.orders.filter((o) => (!emp || o.employeeId === emp) && (!period || monthOf(o.date) === period) && (!st || o.status === st)
-    && (!q || (o.product || '').toLowerCase().includes(q) || (o.number || '').toLowerCase().includes(q)))
+    && (!q || (o.product || '').toLowerCase().includes(q) || (o.number || '').toLowerCase().includes(q) || (o.orderId || '').toLowerCase().includes(q)))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
     <td><input type="checkbox" class="sel" data-id="${o.id}" ${state.selected.has(o.id) ? 'checked' : ''}></td>
-    <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td><td class="nowrap">${esc(o.number)}</td>
+    <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
     <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td>
     <td><button class="small secondary edit" data-id="${o.id}">Змінити</button></td></tr>`).join('')
-    || '<tr><td colspan="9" class="hint">Замовлень немає. Імпортуйте таблицю або додайте вручну.</td></tr>';
+    || '<tr><td colspan="10" class="hint">Замовлень немає. Імпортуйте таблицю або додайте вручну.</td></tr>';
   $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (усього в базі ${data.orders.length})`;
   const urlRec = (data.settings.sheetUrls || []).find((u) => u.employeeId === Number($('#importEmployee').value));
   if (urlRec && !$('#importUrl').value) $('#importUrl').value = urlRec.url;
@@ -110,11 +118,11 @@ function openOrderForm(order) {
   const f = $('#orderForm');
   fillEmployeeSelect(f.employeeId, false);
   f.status.innerHTML = Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-  const o = order || { id: '', employeeId: Number($('#fEmployee').value) || (data.employees[0] || {}).id, date: today(), product: '', number: '', amount: '', channel: '', status: 'ok' };
+  const o = order || { id: '', employeeId: Number($('#fEmployee').value) || (data.employees[0] || {}).id, date: today(), product: '', number: '', orderId: '', kind: '', amount: '', channel: '', status: 'ok' };
   $('#orderFormTitle').textContent = order ? 'Змінити замовлення' : 'Нове замовлення';
   f.id.value = o.id; f.employeeId.value = o.employeeId; f.date.value = o.date; f.product.value = o.product;
-  f.number.value = o.number; f.amount.value = o.amount; f.channel.value = o.channel; f.status.value = o.status;
-  state.formNp = o.track || null;
+  f.number.value = o.number; f.orderId.value = o.orderId || ''; f.amount.value = o.amount; f.channel.value = o.channel; f.status.value = o.status;
+  state.formNp = o.track || null; state.formKind = o.kind || '';
   $('#orderNpInfo').textContent = trackTitle(o);
   $('#modal').classList.remove('hidden');
   f.product.focus();
@@ -186,10 +194,10 @@ function renderShipments() {
   $('#shTable tbody').innerHTML = list.map((it, i) => `<tr>
     <td><input type="checkbox" class="sh-sel" data-i="${i}" ${state.shSelected.has(i) ? 'checked' : ''}></td>
     <td class="nowrap">${it.date}</td><td>${esc(it.employee)}</td><td class="nowrap">${esc(it.channel)}</td>
-    <td><div class="clip" title="${esc(it.product)}">${esc(it.product)}</div></td><td class="nowrap" title="${esc(it.orderId)}">${esc(it.number)}</td>
+    <td><div class="clip" title="${esc(it.product)}">${esc(it.product)}</div></td>${numCells(it)}
     <td class="num">${fmt(it.amount)}</td><td><span class="badge ${it.status}" title="${esc(it.note)}">${STATUS[it.status] || it.status}</span></td>
     <td>${it.inBase ? 'так' : ''}</td></tr>`).join('')
-    || '<tr><td colspan="9" class="hint">Нічого не зібрано.</td></tr>';
+    || '<tr><td colspan="10" class="hint">Нічого не зібрано.</td></tr>';
   $('#shAdd').disabled = !state.shSelected.size;
   $('#shAdd').textContent = state.shSelected.size ? `Додати в замовлення (${state.shSelected.size})` : 'Додати в замовлення';
 }
@@ -440,11 +448,17 @@ function bind() {
   $('#orderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, amount: f.amount.value, channel: f.channel.value, status: f.status.value, track: state.formNp };
+    const o = { id: f.id.value, employeeId: f.employeeId.value, date: f.date.value, product: f.product.value, number: f.number.value, orderId: f.orderId.value, kind: state.formKind, amount: f.amount.value, channel: f.channel.value, status: f.status.value, track: state.formNp };
     $('#modal').classList.add('hidden');
     reload(await window.api.saveOrder(o));
   });
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') $('#modal').classList.add('hidden'); });
+  // Клік по ТТН або № замовлення — у буфер обміну.
+  document.addEventListener('click', async (e) => {
+    const el = e.target.closest('.copy'); if (!el) return;
+    await window.api.copyText(el.dataset.copy);
+    toast(`Скопійовано: ${el.dataset.copy}`);
+  });
 
   // Працівники
   $('#addEmployee').addEventListener('click', async () => {

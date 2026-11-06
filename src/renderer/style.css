@@ -61,6 +61,10 @@ table.grid { width: 100%; border-collapse: collapse; background: var(--panel); b
 .grid.fixed td, .grid.fixed th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid td.nowrap { white-space: nowrap; }
 .grid td .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy { cursor: copy; border-bottom: 1px dashed var(--muted); }
+.copy:hover { background: #eef2ff; }
+.muted { color: var(--muted); }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2937; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 50; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: #e5e7eb; }
 .badge.ok { background: #dcfce7; color: var(--ok); }
 .badge.refused, .badge.cancelled { background: #fee2e2; color: var(--danger); }

@@ -27,8 +27,27 @@ async function fetchText(url) {
 
 class Service {
   // opts.fetch — підміна fetch для Нової Пошти в тестах.
-  constructor(store, opts = {}) { this.store = store; this.fetch = opts.fetch || null; }
+  constructor(store, opts = {}) { this.store = store; this.fetch = opts.fetch || null; this.migrateNumbers(); }
   get data() { return this.store.data; }
+
+  // Раніше замовлення без ТТН записувалось із номером «rozetka-123»: тепер ТТН порожній, а № замовлення
+  // і кабінет — окремі поля orderId/kind (заповнюються і з track.mp). Запис без ТТН, що дублює запис
+  // із ТТН того ж замовлення, прибирається.
+  migrateNumbers() {
+    const re = /^(rozetka|prom|epicentr)-(\S+)$/;
+    let changed = false;
+    for (const o of this.data.orders) {
+      const m = re.exec(o.number || '');
+      if (m) { o.number = ''; o.kind = m[1]; o.orderId = m[2]; changed = true; }
+      if (!o.orderId && o.track && o.track.mp && o.track.mp.orderId) { o.orderId = String(o.track.mp.orderId); o.kind = o.track.mp.kind || ''; changed = true; }
+      if (o.orderId == null) { o.orderId = ''; o.kind = o.kind || ''; changed = true; }
+    }
+    const withTtn = new Set(this.data.orders.filter((o) => o.number && o.orderId).map((o) => `${o.employeeId}|${o.kind}|${o.orderId}`));
+    const before = this.data.orders.length;
+    this.data.orders = this.data.orders.filter((o) => o.number || !o.orderId || !withTtn.has(`${o.employeeId}|${o.kind}|${o.orderId}`));
+    if (changed || this.data.orders.length !== before) this.store.save();
+    return before - this.data.orders.length;
+  }
 
   // ---------- налаштування ----------
   saveSettings(patch) {
@@ -124,6 +143,8 @@ class Service {
       employeeId: emp.id,
       product: String(order.product || '').trim(),
       number: String(order.number || '').trim().replace(/\s+/g, ' '),
+      orderId: String(order.orderId || '').trim(),
+      kind: mp.MP_ORDER.includes(order.kind) ? order.kind : '',
       amount: lib.round2(Number(order.amount) || 0),
       channel: String(order.channel || '').trim(),
       status: lib.STATUS[order.status] ? order.status : 'checking',
@@ -177,7 +198,7 @@ class Service {
     return this.data.orders.filter((o) => (!emp || o.employeeId === emp.id)
       && (!period || lib.monthOf(o.date) === period)
       && (!status || o.status === status)
-      && (!qq || (o.product || '').toLowerCase().includes(qq) || (o.number || '').toLowerCase().includes(qq)));
+      && (!qq || (o.product || '').toLowerCase().includes(qq) || (o.number || '').toLowerCase().includes(qq) || (o.orderId || '').toLowerCase().includes(qq)));
   }
 
   // ---------- імпорт ----------
@@ -289,25 +310,36 @@ class Service {
 
   // Наявне замовлення працівника з тим самим номером — точно або за кодом посилки/ТТН усередині
   // («RMP-251639361 723-5205316» з таблиці = «RMP-251639361» з кабінету).
-  findExisting(employeeId, number) {
-    const exact = this.data.orders.find((x) => x.employeeId === employeeId && x.number === number);
+  // Те саме замовлення працівника: за № замовлення в кабінеті (kind + orderId), за точним номером,
+  // або за кодом посилки / 14-значним ТТН усередині номера (рядок таблиці з доважком).
+  findExisting(employeeId, number, { kind, orderId } = {}) {
+    const mine = this.data.orders.filter((x) => x.employeeId === employeeId);
+    if (orderId) {
+      const byOrder = mine.find((x) => x.orderId === String(orderId) && (!kind || !x.kind || x.kind === kind));
+      if (byOrder) return byOrder;
+    }
+    if (!number) return null;
+    const exact = mine.find((x) => x.number === number);
     if (exact) return exact;
     const codes = new Set([...(String(number).match(/\d{14}/g) || []), ...mp.parcelCodes(number)]);
     if (!codes.size) return null;
-    return this.data.orders.find((x) => x.employeeId === employeeId && x.number !== number
+    return mine.find((x) => x.number !== number
       && [...(x.number.match(/\d{14}/g) || []), ...mp.parcelCodes(x.number)].some((c) => codes.has(c))) || null;
   }
 
   // Підставити зведення в замовлення. withDate — також дату (з маркетплейсу або дата накладної).
   applyTracking(o, t, { withDate } = {}) {
-    const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel };
+    const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel, number: o.number };
     o.status = t.status;
     if (t.amount != null) o.amount = lib.round2(t.amount);
     if (t.channel) o.channel = t.channel;
     if (!o.product && t.product) o.product = t.product;
     if (withDate && t.date) o.date = t.date;
+    if (t.ttn && !o.number) o.number = t.ttn; // ТТН з'явився в кабінеті після створення замовлення
+    const src = t.orderId ? t : (t.mp && t.mp.orderId ? t.mp : null);
+    if (src && !o.orderId) { o.orderId = String(src.orderId); o.kind = mp.MP_ORDER.includes(src.kind) ? src.kind : ''; }
     o.track = { checked: todayLocal(), note: t.note, problem: t.problem, np: t.np, mp: t.mp, rd: t.rd };
-    return before.status !== o.status || before.amount !== o.amount || before.date !== o.date || before.channel !== o.channel;
+    return before.status !== o.status || before.amount !== o.amount || before.date !== o.date || before.channel !== o.channel || before.number !== o.number;
   }
 
   // Додати замовлення за номерами (ТТН, PRM-…, номер замовлення): статус, сума, дата, канал — з джерел.
@@ -433,9 +465,9 @@ class Service {
       const rdIds = own.map((it) => mp.rozetkaDeliveryId(it.ttn)).filter(Boolean);
       const rdFound = rdIds.length ? await mp.rozetkaDelivery(rdIds, { fetch: this.fetch }) : new Map();
       for (const it of own) {
-        const number = it.ttn || `${it.kind}-${it.orderId}`;
-        const c = combine(number, npFound.get(it.ttn), it, rdFound.get(mp.rozetkaDeliveryId(it.ttn)));
-        const existing = this.findExisting(e.id, number);
+        const number = it.ttn || ''; // без ТТН (ще не відправлено або скасовано) — номер порожній, є лише № замовлення
+        const c = combine(number || it.orderId, npFound.get(it.ttn), it, rdFound.get(mp.rozetkaDeliveryId(it.ttn)));
+        const existing = this.findExisting(e.id, number, { kind: it.kind, orderId: it.orderId });
         items.push({
           employeeId: e.id, employee: e.name, number, ttn: it.ttn, orderId: it.orderId, channel: it.channel, kind: it.kind,
           product: it.product, amount: c.amount != null ? c.amount : it.amount, date: it.date, status: c.status, problem: c.problem,
@@ -452,13 +484,13 @@ class Service {
     let added = 0, updated = 0;
     for (const it of Array.isArray(items) ? items : []) {
       const emp = this.resolveEmployee(it.employeeId);
-      const number = String(it.number || '').trim();
-      if (!emp || !number) continue;
-      const t = { status: lib.STATUS[it.status] ? it.status : 'checking', amount: it.amount == null ? null : Number(it.amount), channel: it.channel, product: it.product, date: it.date, note: it.note || '', problem: it.problem || '', np: it.track && it.track.np, mp: it.track && it.track.mp, rd: it.track && it.track.rd };
-      let o = this.findExisting(emp.id, number);
+      const number = String(it.number || it.ttn || '').trim(), orderId = String(it.orderId || '').trim();
+      if (!emp || (!number && !orderId)) continue;
+      const t = { status: lib.STATUS[it.status] ? it.status : 'checking', amount: it.amount == null ? null : Number(it.amount), channel: it.channel, product: it.product, date: it.date, note: it.note || '', problem: it.problem || '', np: it.track && it.track.np, mp: it.track && it.track.mp, rd: it.track && it.track.rd, ttn: number, orderId, kind: it.kind };
+      let o = this.findExisting(emp.id, number, { kind: it.kind, orderId });
       if (o) { if (this.applyTracking(o, t, { withDate: true })) updated++; }
       else {
-        o = this.normalizeOrder({ employeeId: emp.id, number, product: it.product, channel: it.channel, status: t.status, amount: t.amount || 0, date: it.date });
+        o = this.normalizeOrder({ employeeId: emp.id, number, orderId, kind: it.kind, product: it.product, channel: it.channel, status: t.status, amount: t.amount || 0, date: it.date });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
         this.data.orders.push(o);
@@ -525,8 +557,8 @@ class Service {
     sRows.push(['Разом', '', totals.total, totals.done, '', '', '', '', totals.sumDone, totals.salary]);
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders({ period }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
-    const oRows = [['Дата', 'Працівник', 'Товар', 'Номер', 'Сума', 'Канал', 'Статус'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.amount, o.channel, lib.STATUS[o.status] || o.status])];
+    const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус'],
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status])];
     const filename = `зарплата-${period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, { name: 'Замовлення', rows: oRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...oRows]), 'utf8'), contentType: 'text/csv; charset=utf-8' };
@@ -545,6 +577,7 @@ class Service {
     this.data.orders = d.orders.filter((o) => ids.has(Number(o.employeeId))).map((o) => this.normalizeOrder(o)).map((o) => (o.id ? o : Object.assign(o, { id: this.store.nextId() })));
     const maxId = Math.max(999, ...this.data.employees.map((e) => e.id), ...this.data.orders.map((o) => o.id));
     if (this.data.nextId <= maxId) this.data.nextId = maxId + 1;
+    this.migrateNumbers();
     this.store.save();
     return { employees: this.data.employees.length, orders: this.data.orders.length };
   }

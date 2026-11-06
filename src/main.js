@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Store } = require('./store');
@@ -68,6 +68,7 @@ function createWindow() {
         for (const tab of ['orders', 'shipments', 'settings']) {
           await win.webContents.executeJavaScript(`document.querySelector('[data-tab=${tab}]').click()`);
           if (tab === 'settings') await win.webContents.executeJavaScript("document.querySelector('#toggleDocs').click()");
+          else await win.webContents.executeJavaScript(`(document.querySelector('#tab-${tab} table.grid') || {}).scrollIntoView && document.querySelector('#tab-${tab} table.grid').scrollIntoView()`);
           await new Promise((r) => setTimeout(r, 800));
           await shot(process.env.SALARY_SMOKE_SHOT.replace(/\.png$/, '') + `-${tab}.png`);
         }
@@ -114,6 +115,7 @@ function buildMenu() {
 
 function registerIpc() {
   ipcMain.handle('data:get', () => service.data);
+  ipcMain.handle('clipboard:write', (_e, t) => clipboard.writeText(String(t || '')));
 
   ipcMain.handle('settings:save', async (_e, settings) => {
     const s = service.saveSettings(settings);

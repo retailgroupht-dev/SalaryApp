@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   getData: () => ipcRenderer.invoke('data:get'),
+  copyText: (t) => ipcRenderer.invoke('clipboard:write', t),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   saveEmployees: (list) => ipcRenderer.invoke('employees:save', list),
   saveOrder: (o) => ipcRenderer.invoke('orders:save', o),

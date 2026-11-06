@@ -227,6 +227,24 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.strictEqual(r.status, 400);
     r = await t.call('POST', '/api/shipments/add', { employee: 'Настя', period: '2026-08' });
     assert.deepStrictEqual({ collected: r.body.collected, added: r.body.added, updated: r.body.updated }, { collected: 1, added: 0, updated: 0 });
+    assert.deepStrictEqual({ orderId: nastya.orderId, kind: nastya.kind }, { orderId: '777', kind: 'prom' }); // № замовлення підтягнувся з кабінету
+
+    // замовлення без ТТН: номер порожній, є лише № замовлення; коли ТТН з'явиться — те саме замовлення, не дубль
+    let a = t.service.addShipments([{ employeeId: nastya.employeeId, number: '', orderId: '555', kind: 'rozetka', channel: 'Rozetka', product: 'ліхтар', amount: 100, date: '2026-08-02', status: 'checking' }]);
+    assert.deepStrictEqual(a, { added: 1, updated: 0 });
+    const noTtn = t.service.data.orders.find((o) => o.orderId === '555');
+    assert.deepStrictEqual({ number: noTtn.number, kind: noTtn.kind, status: noTtn.status }, { number: '', kind: 'rozetka', status: 'checking' });
+    a = t.service.addShipments([{ employeeId: nastya.employeeId, number: '20451521500999', orderId: '555', kind: 'rozetka', channel: 'Rozetka', product: 'ліхтар', amount: 100, date: '2026-08-02', status: 'ok' }]);
+    assert.deepStrictEqual(a, { added: 0, updated: 1 });
+    assert.deepStrictEqual({ number: noTtn.number, status: noTtn.status, count: t.service.data.orders.filter((o) => o.orderId === '555').length }, { number: '20451521500999', status: 'ok', count: 1 });
+    r = await t.call('GET', '/api/orders?q=555');
+    assert.strictEqual(r.body.length, 1); // пошук і за № замовлення
+    // стара база: «prom-123» → порожній ТТН + № замовлення; запис без ТТН, що дублює запис із ТТН, прибирається
+    t.service.data.orders.push({ id: 9001, employeeId: nastya.employeeId, number: 'prom-123', amount: 1, status: 'cancelled', date: '2026-08-03', channel: '' },
+      { id: 9002, employeeId: nastya.employeeId, number: 'rozetka-555', amount: 1, status: 'checking', date: '2026-08-03', channel: '' });
+    assert.strictEqual(t.service.migrateNumbers(), 1);
+    const old = t.service.data.orders.find((o) => o.id === 9001);
+    assert.deepStrictEqual({ number: old.number, orderId: old.orderId, kind: old.kind, dup: t.service.data.orders.some((o) => o.id === 9002) }, { number: '', orderId: '123', kind: 'prom', dup: false });
 
     // автоматичне оновлення: поточний і попередній місяць (у підробці Prom замовлення серпневе → нічого нового), статус у налаштуваннях
     r = await t.call('PUT', '/api/settings', { auto: { enabled: false, hours: 5 } });
