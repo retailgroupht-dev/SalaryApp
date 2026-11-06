@@ -4,3 +4,4 @@ nastya.txt
 tovkes.txt
 *.apps-script.txt
 SalaryApp-копія-*.json
+.DS_Store
