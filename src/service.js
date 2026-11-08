@@ -583,8 +583,8 @@ class Service {
   exportOrdersBuffer(format, filters = {}) {
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders(filters).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
-    const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status])];
+    const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status, lib.statusDetail(o.track)])];
     const source = filters.source ? (filters.source === 'auto' ? 'авто' : 'таблиця') : 'усі';
     const filename = `замовлення-${source}-${filters.period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Замовлення', rows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', count: orders.length };
@@ -600,8 +600,8 @@ class Service {
     sRows.push(['Разом', '', totals.total, totals.done, '', '', '', '', totals.sumDone, totals.salary]);
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders({ period, source }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
-    const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status])];
+    const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status, lib.statusDetail(o.track)])];
     const filename = `зарплата-${source === 'auto' ? 'авто' : 'таблиця'}-${period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, { name: 'Замовлення', rows: oRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...oRows]), 'utf8'), contentType: 'text/csv; charset=utf-8' };

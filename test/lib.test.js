@@ -89,6 +89,15 @@ test('calcSalary: 5% від виконаних, період по місяцю, 
   assert.strictEqual(all[0].sumDone, 1200);
 });
 
+test('statusDetail: перевізник важливіший за кабінет, помилки трекінгу не затуляють статус кабінету', () => {
+  assert.strictEqual(lib.statusDetail(null), '');
+  assert.strictEqual(lib.statusDetail({ np: { status: 'Відправник самостійно створив цю накладну, але ще не надав до відправки', code: '1' }, mp: { channel: 'Пром 1', status: 'Принят' } }), 'Нова Пошта: Створено, ще не відправлено');
+  assert.strictEqual(lib.statusDetail({ np: { status: 'Відправлення отримано', code: '9', received: '2026-08-30' }, mp: null }), 'Нова Пошта: Відправлення отримано (2026-08-30)');
+  assert.strictEqual(lib.statusDetail({ np: null, rd: { status: 'HTTP 429' }, mp: { channel: 'Rozetka', status: 'Не прийшов за замовленням' } }), 'Rozetka: Не прийшов за замовленням');
+  assert.strictEqual(lib.statusDetail({ np: null, rd: { status: 'Видано', code: 60030, date: '2026-10-22' }, mp: { channel: 'Rozetka', status: 'Виконано' } }), 'Rozetka Delivery: Видано (2026-10-22)');
+  assert.strictEqual(lib.statusDetail({ np: { status: 'Номер не знайдено', code: '3' }, mp: null, rd: null }), 'Нова Пошта: Номер не знайдено');
+});
+
 test('buildXlsx: коректний zip, читається sheet1.xml', () => {
   const buf = lib.buildXlsx([{ name: 'Зарплата', rows: [['Працівник', 'Сума'], ['Настя', 50.5]] }]);
   assert.strictEqual(buf.readUInt32LE(0), 0x04034b50);

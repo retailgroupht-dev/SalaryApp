@@ -44,7 +44,7 @@ function migrateOldDataDir(userData) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1200,
+    width: 1400,
     height: 800,
     minWidth: 900,
     minHeight: 600,

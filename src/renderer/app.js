@@ -11,6 +11,19 @@ const state = { salaryPeriod: null, salarySource: 'auto', ordersSource: 'auto', 
 // ТТН і № замовлення: клік копіює в буфер; без ТТН — «—».
 const copyCell = (v, title) => (v ? `<span class="copy" data-copy="${esc(v)}" title="${esc(title || v)}. Натисніть, щоб скопіювати">${esc(v)}</span>` : '<span class="muted">—</span>');
 const numCells = (o) => `<td class="nowrap">${copyCell(o.number, 'ТТН')}</td><td class="nowrap">${copyCell(o.orderId, '№ замовлення в кабінеті')}</td>`;
+// Статус: бейдж + рядком нижче деталь (що сказав перевізник або кабінет); повний опис — у підказці.
+const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
+function statusDetail(track) {
+  if (!track) return '';
+  const np = track.np, rd = track.rd, mp = track.mp;
+  if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
+  if (rd && rd.status && !/^HTTP|з’єднання|не знайдено/.test(rd.status)) return `Rozetka Delivery: ${rd.status}${rd.date ? ` (${rd.date})` : ''}`;
+  if (mp && mp.status) return `${mp.channel || mp.kind}: ${mp.status}`;
+  if (rd && rd.status) return `Rozetka Delivery: ${rd.status}`;
+  if (np && np.status) return `Нова Пошта: ${np.status}`;
+  return '';
+}
+const statusCell = (status, track, note) => `<td class="status-cell" title="${esc(note || '')}"><span class="badge ${status}">${STATUS[status] || status}</span><div class="detail clip">${esc(statusDetail(track))}</div></td>`;
 let toastTimer = null;
 function toast(text) {
   const el = $('#toast'); el.textContent = text; el.classList.remove('hidden');
@@ -87,7 +100,7 @@ function renderSalaryDetail() {
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'}, ${SOURCE[state.salarySource]} (${orders.length})`;
   box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
-    <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td></tr>`).join('')
+    <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td>${statusCell(o.status, o.track, trackTitle(o))}</tr>`).join('')
     || '<tr><td colspan="7" class="hint">Замовлень немає</td></tr>';
 }
 
@@ -111,7 +124,7 @@ function renderOrders() {
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
     <td><input type="checkbox" class="sel" data-id="${o.id}" ${state.selected.has(o.id) ? 'checked' : ''}></td>
     <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
-    <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td><td><span class="badge ${o.status}" title="${esc(trackTitle(o))}">${STATUS[o.status] || o.status}</span></td>
+    <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td>${statusCell(o.status, o.track, trackTitle(o))}
     <td><button class="small secondary edit" data-id="${o.id}">Змінити</button></td></tr>`).join('')
     || `<tr><td colspan="10" class="hint">${state.ordersSource === 'auto' ? 'Замовлень немає. Зберіть їх з кабінетів у вкладці «Відправлення» або зачекайте на автоматичне оновлення.' : 'Замовлень немає. Імпортуйте аркуш таблиці або вставте рядки вище.'}</td></tr>`;
   $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (у наборі ${data.orders.filter((o) => o.source === state.ordersSource).length}, усього в базі ${data.orders.length})`;
@@ -201,7 +214,7 @@ function renderShipments() {
     <td><input type="checkbox" class="sh-sel" data-i="${i}" ${state.shSelected.has(i) ? 'checked' : ''}></td>
     <td class="nowrap">${it.date}</td><td>${esc(it.employee)}</td><td class="nowrap">${esc(it.channel)}</td>
     <td><div class="clip" title="${esc(it.product)}">${esc(it.product)}</div></td>${numCells(it)}
-    <td class="num">${fmt(it.amount)}</td><td><span class="badge ${it.status}" title="${esc(it.note)}">${STATUS[it.status] || it.status}</span></td>
+    <td class="num">${fmt(it.amount)}</td>${statusCell(it.status, it.track, it.note)}
     <td>${it.inBase ? 'так' : ''}</td></tr>`).join('')
     || '<tr><td colspan="10" class="hint">Нічого не зібрано.</td></tr>';
   $('#shAdd').disabled = !state.shSelected.size;

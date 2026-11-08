@@ -158,6 +158,20 @@ function mergeOrders(existing, incoming, nextId) {
 // ---------- Розрахунок ----------
 function monthOf(date) { return (date || '').slice(0, 7); }
 
+// Деталь статусу для таблиці: що саме сказав перевізник (Нова Пошта, Rozetka Delivery), інакше —
+// статус у кабінеті маркетплейсу. Довгі фрази НП скорочуються.
+const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
+function statusDetail(track) {
+  if (!track) return '';
+  const np = track.np, rd = track.rd, mp = track.mp;
+  if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
+  if (rd && rd.status && !/^HTTP|з’єднання|не знайдено/.test(rd.status)) return `Rozetka Delivery: ${rd.status}${rd.date ? ` (${rd.date})` : ''}`;
+  if (mp && mp.status) return `${mp.channel || mp.kind}: ${mp.status}`;
+  if (rd && rd.status) return `Rozetka Delivery: ${rd.status}`;
+  if (np && np.status) return `Нова Пошта: ${np.status}`;
+  return '';
+}
+
 // Два набори замовлень: 'auto' — веде програма (кабінети маркетплейсів), 'manual' — з таблиці або вставки.
 const SOURCE = { auto: 'Авто (кабінети)', manual: 'Таблиця (вручну)' };
 
@@ -309,6 +323,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, parseCsv, toCsv, sheetExportUrl, parseAmount, statusFromText, mapSheetRow, importRows, mergeOrders,
+  SOURCE, statusDetail, parseCsv, toCsv, sheetExportUrl, parseAmount, statusFromText, mapSheetRow, importRows, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };
