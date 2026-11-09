@@ -159,7 +159,8 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: '20451520852070 20451535524936, 20451521500117 20459999999999' });
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, notFound: r.body.notFound, noAmount: r.body.noAmount, errors: r.body.errors },
-      { added: 3, updated: 0, notFound: ['20459999999999'], noAmount: ['20451535524936', '20451521500117'], errors: [] });
+      { added: 4, updated: 0, notFound: ['20459999999999'], noAmount: ['20451535524936', '20451521500117'], errors: [] }); // не знайдений теж додано — як «Немає даних»
+    assert.strictEqual(t.service.data.orders.find((o) => o.number === '20459999999999').status, 'nodata');
     const o = t.service.data.orders.find((x) => x.number === '20451520852070');
     assert.deepStrictEqual({ status: o.status, amount: o.amount, date: o.date, product: o.product, channel: o.channel, np: o.track.np.status, mp: o.track.mp.channel },
       { status: 'ok', amount: 300, date: '2026-08-30', product: 'щітка з Prom', channel: 'Пром 1', np: 'Відправлення отримано', mp: 'Пром 1' });
@@ -170,7 +171,7 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     // повторне додавання не дублює
     r = await t.call('POST', '/api/track', { employee: 'Настя', numbers: ['20451520852070'] });
     assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated }, { added: 0, updated: 0 });
-    assert.strictEqual(t.service.data.orders.length, 3);
+    assert.strictEqual(t.service.data.orders.length, 4);
 
     // замовлення «в дорозі» отримали → refresh змінює статус; дата змінюється лише з withDate
     const inTransit = t.service.data.orders.find((x) => x.number === '20451521500117');
@@ -217,9 +218,11 @@ test('API: вставка з таблиці, відправлення з каб�
     // порядок колонок неважливий
     r = await t.call('POST', '/api/import/paste', { text: 'Настя\t20451521500117\tпончо' });
     assert.strictEqual(r.body.added, 1);
-    // лише дві колонки (товар і ТТН) — працівник з параметра; ім’я в рядку має перевагу
-    r = await t.call('POST', '/api/import/paste', { text: 'шпалери\t20451521500117\nщітка\t20451520852070\tТовкес', employee: 'Настя' });
-    assert.deepStrictEqual({ parsed: r.body.parsed, updated: r.body.updated, unknown: r.body.unknown.length }, { parsed: 2, updated: 0, unknown: 0 });
+    // лише дві колонки (товар і ТТН) — працівник з параметра; ім’я в рядку має перевагу; код посилки всередині клітинки з товаром
+    r = await t.call('POST', '/api/import/paste', { text: 'шпалери\t20451521500117\nщітка\t20451520852070\tТовкес\nчохли на велик (XJ3277) 3шт RMP-1037574\t', employee: 'Настя' });
+    assert.deepStrictEqual({ parsed: r.body.parsed, updated: r.body.updated, unknown: r.body.unknown.length }, { parsed: 3, updated: 0, unknown: 0 });
+    const rmp = t.service.data.orders.find((o) => o.number === 'RMP-1037574');
+    assert.deepStrictEqual({ product: rmp.product, employeeId: rmp.employeeId, status: rmp.status }, { product: 'чохли на велик (XJ3277) 3шт', employeeId: t.service.resolveEmployee('Настя').id, status: 'nodata' });
 
     // вставлені рядки — набір manual; відправлення з кабінетів — набір auto, набори не змішуються
     assert.strictEqual(nastya.source, 'manual');
@@ -249,6 +252,10 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.strictEqual(r.body.added, 1);
     const imported = t.service.data.orders.find((o) => o.source === 'manual' && o.employeeId === nastya.employeeId && o.number === '20451520852070');
     assert.strictEqual(imported.date, '2026-08-30');
+    // рядок таблиці Товкеса з ТТН, який є лише в кабінеті Насті: суму й товар дає авто-набір
+    tovkes.number = '20451520852070'; tovkes.amount = 0; tovkes.product = '';
+    t.service.applyTracking(tovkes, { status: 'ok', amount: null, channel: '', product: '', date: '', note: 'Нова Пошта: Відправлення отримано', np: { status: 'Відправлення отримано', code: '9' } });
+    assert.deepStrictEqual({ amount: tovkes.amount, product: tovkes.product, channel: tovkes.channel, note: /сума з авто-набору/.test(tovkes.track.note) }, { amount: 300, product: 'щітка з Prom', channel: 'Пром Насті', note: true });
 
     // замовлення без ТТН: номер порожній, є лише № замовлення; коли ТТН з'явиться — те саме замовлення, не дубль
     let a = t.service.addShipments([{ employeeId: nastya.employeeId, number: '', orderId: '555', kind: 'rozetka', channel: 'Rozetka', product: 'ліхтар', amount: 100, date: '2026-08-02', status: 'checking' }]);

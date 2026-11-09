@@ -413,7 +413,7 @@ function bind() {
       const parts = [`Рядків: ${r.parsed}. Додано: ${r.added}, оновлено: ${r.updated}.`];
       if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
       if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);
-      if (r.unknown.length) parts.push(`Пропущено рядків: ${r.unknown.length} (${r.unknown.slice(0, 3).map((u) => `«${u.line.slice(0, 40)}» — ${u.reason}`).join('; ')}${r.unknown.length > 3 ? '…' : ''}).`);
+      if (r.unknown.length) parts.push(`Пропущено рядків: ${r.unknown.length} (${r.unknown.slice(0, 3).map((u) => `«${u.line.slice(0, 70)}» — ${u.reason}`).join('; ')}${r.unknown.length > 3 ? '…' : ''}).`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
       pasteStatus(parts.join(' '), r.added + r.updated ? 'ok' : 'err');
       if (r.added + r.updated) $('#pasteText').value = '';

@@ -348,6 +348,19 @@ class Service {
   // Підставити зведення в замовлення. withDate — також дату (з маркетплейсу або дата накладної).
   applyTracking(o, t, { withDate } = {}) {
     const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel, number: o.number };
+    // Рядок таблиці шукається кабінетами свого працівника; якщо суми не дали (замовлення в чужому кабінеті,
+    // лише Нова Пошта без ключа відправника), беремо те, що програма вже знає про цей ТТН в авто-наборі.
+    if (o.source === 'manual' && o.number && (t.amount == null || !t.channel || !t.product || !t.date)) {
+      const a = this.findExisting(null, o.number, { source: 'auto' });
+      if (a) {
+        t = Object.assign({}, t);
+        if (t.amount == null && a.amount) { t.amount = a.amount; t.note = (t.note ? t.note + '; ' : '') + 'сума з авто-набору'; }
+        if (!t.channel) t.channel = a.channel;
+        if (!t.product) t.product = a.product;
+        if (!t.date) t.date = a.date;
+        if (!t.found && a.status) { t.found = true; t.status = a.status; }
+      }
+    }
     o.status = t.status;
     if (t.amount != null) o.amount = lib.round2(t.amount);
     if (t.channel) o.channel = t.channel;
@@ -374,7 +387,7 @@ class Service {
       let o = this.findExisting(emp.id, number, { source });
       if (o) { if (this.applyTracking(o, t)) res.updated++; }
       else {
-        if (!t.found) continue;
+        if (!t.found && source !== 'manual') continue; // рядок таблиці лишається й без даних (як «НЕТ ДАННЫХ» у таблиці)
         o = this.normalizeOrder({ employeeId: emp.id, number, source, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
@@ -436,6 +449,13 @@ class Service {
         const e = !emp && this.resolveEmployee(c);
         if (e) { emp = e; continue; }
         rest.push(c);
+      }
+      if (!number) {
+        // код посилки (RMP-…, PRM-…) або 14-значний ТТН усередині тексту товару
+        for (let i = 0; i < rest.length && !number; i++) {
+          const code = (rest[i].match(/\d{14}/) || [])[0] || mp.parcelCodes(rest[i])[0];
+          if (code) { number = code; rest[i] = rest[i].replace(/[A-Z]{2,4}[-\s]?\d{6,}|\d{14}/i, '').replace(/\s+/g, ' ').trim(); }
+        }
       }
       product = rest.join(' ');
       if (!emp) emp = fallback;
