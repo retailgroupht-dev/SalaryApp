@@ -14,7 +14,7 @@ function defaultAuto() { return { enabled: true, hours: 6, lastRun: '', lastResu
 function emptyData() {
   return {
     version: 1,
-    settings: { ratePercent: 5, salarySource: 'auto', sheetUrls: [], api: defaultApi(), accounts: defaultAccounts(), auto: defaultAuto() },
+    settings: { ratePercent: 5, salarySource: 'auto', api: defaultApi(), accounts: defaultAccounts(), auto: defaultAuto() },
     employees: DEFAULT_EMPLOYEES.map((name, i) => ({ id: i + 1, name, ratePercent: null })),
     orders: [],
     nextId: 1000,

@@ -88,8 +88,10 @@ function combine(number, npR, mpR, rdR) {
   if (npOk) notes.push(`Нова Пошта: ${npR.npStatus}${npR.reason ? ` (${npR.reason})` : ''}${npR.dateReceived ? `, отримано ${npR.dateReceived}` : ''}`);
   else if (npR) notes.push('Нова Пошта: номер не знайдено');
   if (rdR) notes.push(`Rozetka Delivery: ${rdR.status}`);
+  // Чиє замовлення: працівник кабінету маркетплейсу, інакше — ключа відправника Нової Пошти; null = не визначено.
+  const employeeId = mpR && mpR.employeeId != null ? mpR.employeeId : (npOk && npR.employeeId != null ? npR.employeeId : null);
   return {
-    number, found, status, problem, problemLabel, amount, amountSource, date,
+    number, found, status, problem, problemLabel, amount, amountSource, date, employeeId,
     channel: mpR ? mpR.channel : '',
     product: (mpR && mpR.product) || (npOk && npR.product) || '',
     dateReceived: npOk ? npR.dateReceived : '',

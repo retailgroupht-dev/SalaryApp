@@ -130,26 +130,13 @@ function registerIpc() {
 
   ipcMain.handle('np:track', (_e, numbers) => service.trackNumbers(numbers).then((r) => ({ results: [...r.results.values()], errors: r.errors })));
   ipcMain.handle('accounts:import', async (_e, p) => Object.assign(await service.importAccountsFromScript(p.text, p.employeeId), { settings: service.data.settings }));
-  ipcMain.handle('import:paste', async (_e, p) => Object.assign(await service.addPasted(p.text, p.employeeId || undefined), { data: service.data }));
+  ipcMain.handle('import:paste', async (_e, p) => Object.assign(await service.addPasted(p.text), { data: service.data }));
   ipcMain.handle('shipments:collect', (_e, p) => service.collectShipments(p));
   ipcMain.handle('shipments:add', (_e, items) => Object.assign(service.addShipments(items), { data: service.data }));
   ipcMain.handle('sync:run', async () => Object.assign(await service.autoSync(), { data: service.data }));
   ipcMain.handle('accounts:test', () => service.testAccounts());
   ipcMain.handle('np:add', async (_e, p) => Object.assign(await service.addByTtn(p), { data: service.data }));
   ipcMain.handle('np:refresh', async (_e, p) => Object.assign(await service.refreshFromNp(p), { data: service.data }));
-
-  ipcMain.handle('import:url', async (_e, p) => Object.assign(await service.importFromUrl(p.url, p), { data: service.data }));
-
-  ipcMain.handle('import:file', async (_e, p) => {
-    const r = await dialog.showOpenDialog(win, {
-      title: 'Оберіть CSV-файл (експорт аркуша)',
-      filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }],
-      properties: ['openFile'],
-    });
-    if (r.canceled || !r.filePaths[0]) return null;
-    const text = fs.readFileSync(r.filePaths[0], 'utf8');
-    return Object.assign(service.importCsvText(text, p), { data: service.data });
-  });
 
   ipcMain.handle('orders:export', async (_e, { format, filters }) => {
     const f = service.exportOrdersBuffer(format || 'xlsx', filters || {});

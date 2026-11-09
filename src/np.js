@@ -122,14 +122,15 @@ async function track(numbers, opts = {}) {
         if (!number) continue;
         const s = score(d);
         const prev = best.get(number);
-        if (!prev || s > prev.score) best.set(number, { doc: d, score: s, account: account.name });
+        if (!prev || s > prev.score) best.set(number, { doc: d, score: s, account: account.name, employeeId: account.employeeId == null || account.employeeId === '' ? null : Number(account.employeeId) });
       }
     }
   }
   if (errors.length === accounts.length) throw new Error(errors.join('; '));
   for (const n of list) {
     const b = best.get(n);
-    out.set(n, b ? mapDocument(b.doc, b.account) : mapDocument({ Number: n, StatusCode: '3', Status: 'Номер не знайдено' }));
+    // employeeId — чий ключ дав найінформативнішу відповідь (ключ відправника з сумою), null = спільний або без ключа
+    out.set(n, b ? Object.assign(mapDocument(b.doc, b.account), { employeeId: b.employeeId }) : Object.assign(mapDocument({ Number: n, StatusCode: '3', Status: 'Номер не знайдено' }), { employeeId: null }));
   }
   return { found: out, errors };
 }

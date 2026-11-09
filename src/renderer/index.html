@@ -60,37 +60,23 @@
         </div>
       </header>
       <p class="hint auto-only">Цей набір веде програма сама: замовлення приходять з кабінетів Prom / Rozetka / Епіцентр (вкладка «Відправлення» і автоматичне оновлення в Налаштуваннях), статуси звіряються з Новою Поштою. Руками сюди нічого додавати не треба.</p>
-      <p class="hint manual-only">Цей набір ведеться з реальних даних: імпорт аркуша Google Таблиці або вставлені рядки (товар, ТТН, продажник). Він не змішується з авто-набором; обидва можна вивантажити в XLSX чи CSV і порівняти.</p>
+      <p class="hint manual-only">Цей набір ведеться з реальних даних: вставлені з таблиці рядки (товар і ТТН) або номери, введені руками. Працівника вибирати не треба: програма проходить усіма ключами з Налаштувань, а кабінет, у якому знайшлося замовлення, каже, чиє воно. Набір не змішується з авто-набором; обидва можна вивантажити в XLSX чи CSV і порівняти.</p>
       <div class="panel manual-only">
         <h2>За номером ТТН або замовлення</h2>
         <div class="row">
-          <label>Працівник <select id="ttnEmployee"></select></label>
           <label class="grow">Номери (ТТН, PRM-…, номер замовлення; кілька — через пробіл, кому або з нового рядка) <textarea id="ttnNumbers" rows="2" placeholder="20450000000000 PRM-700000000"></textarea></label>
           <button id="ttnAddBtn">Підтягнути й додати</button>
         </div>
         <div id="ttnStatus" class="status"></div>
-        <p class="hint" style="margin-bottom:0">Статус, сума, дата продажу, канал і товар підтягуються з Нової Пошти та кабінетів Prom / Rozetka / Епіцентр (Налаштування → Кабінети), за тими ж правилами, що й скрипт у таблицях. Якщо замовлення є лише в Новій Пошті без ключа відправника, суми не буде — вкажіть вручну.</p>
+        <p class="hint" style="margin-bottom:0">Статус, сума, дата продажу, канал і товар підтягуються з Нової Пошти та кабінетів Prom / Rozetka / Епіцентр (Налаштування → Кабінети), за тими ж правилами, що й скрипт у таблицях. Працівник — той, чий кабінет знайшов замовлення (кабінет без працівника — спільний і власника не визначає). Якщо замовлення є лише в Новій Пошті без ключа відправника, суми не буде — вкажіть вручну.</p>
       </div>
       <div class="panel manual-only">
         <h2>Вставити з таблиці</h2>
         <div class="row">
-          <label>Працівник <select id="pasteEmployee"></select></label>
-          <label class="grow">Скопіюйте в таблиці колонки товар і ТТН (можна ще продажника — тоді він перебиває вибраного зліва); порядок колонок неважливий <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
+          <label class="grow">Скопіюйте в таблиці колонки товар і ТТН (можна ще продажника — тоді він перебиває кабінет); порядок колонок неважливий <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
           <button id="pasteBtn">Додати й перевірити</button>
         </div>
         <div id="pasteStatus" class="status"></div>
-      </div>
-      <div class="panel manual-only">
-        <h2>Імпорт із Google Таблиці</h2>
-        <div class="row">
-          <label>Працівник <select id="importEmployee"></select></label>
-          <label class="grow">Посилання на потрібний аркуш (з #gid= в адресі) <input id="importUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
-          <label>Дата для нових <input id="importDate" type="date"></label>
-          <label title="Для аркушів лише з номером і сумою (без статусів), як «Лист 1 мама»">Рядки без статусу <select id="importDefaultStatus"><option value="ok">Виконано</option><option value="checking">Перевіряється</option></select></label>
-          <button id="importUrlBtn">Імпортувати</button>
-          <button id="importFileBtn" class="secondary">CSV-файл…</button>
-        </div>
-        <div id="importStatus" class="status"></div>
       </div>
       <div class="toolbar filters">
         <label>Працівник <select id="fEmployee"><option value="">Усі</option></select></label>

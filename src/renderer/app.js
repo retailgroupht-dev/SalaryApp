@@ -107,10 +107,6 @@ function renderSalaryDetail() {
 // ---------- Замовлення ----------
 function renderOrders() {
   fillEmployeeSelect($('#fEmployee'), true);
-  fillEmployeeSelect($('#importEmployee'), false);
-  fillEmployeeSelect($('#ttnEmployee'), false);
-  fillEmployeeSelect($('#pasteEmployee'), false);
-  if (!$('#importDate').value) $('#importDate').value = today();
   const fPeriodSel = $('#fPeriod');
   const curPeriod = fPeriodSel.dataset.set ? fPeriodSel.value : '';
   fillPeriodSelect(fPeriodSel, curPeriod, 'Усі'); fPeriodSel.dataset.set = '1';
@@ -126,10 +122,8 @@ function renderOrders() {
     <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
     <td class="num">${fmt(o.amount)}</td><td class="nowrap">${esc(o.channel)}</td>${statusCell(o.status, o.track, trackTitle(o))}
     <td><button class="small secondary edit" data-id="${o.id}">Змінити</button></td></tr>`).join('')
-    || `<tr><td colspan="10" class="hint">${state.ordersSource === 'auto' ? 'Замовлень немає. Зберіть їх з кабінетів у вкладці «Відправлення» або зачекайте на автоматичне оновлення.' : 'Замовлень немає. Імпортуйте аркуш таблиці або вставте рядки вище.'}</td></tr>`;
+    || `<tr><td colspan="10" class="hint">${state.ordersSource === 'auto' ? 'Замовлень немає. Зберіть їх з кабінетів у вкладці «Відправлення» або зачекайте на автоматичне оновлення.' : 'Замовлень немає. Вставте рядки з таблиці або номери вище.'}</td></tr>`;
   $('#ordersCount').textContent = `Показано ${Math.min(list.length, 2000)} з ${list.length} (у наборі ${data.orders.filter((o) => o.source === state.ordersSource).length}, усього в базі ${data.orders.length})`;
-  const urlRec = (data.settings.sheetUrls || []).find((u) => u.employeeId === Number($('#importEmployee').value));
-  if (urlRec && !$('#importUrl').value) $('#importUrl').value = urlRec.url;
 }
 
 function openOrderForm(order) {
@@ -321,44 +315,19 @@ function bind() {
   // Замовлення
   ['#fEmployee', '#fPeriod', '#fStatus'].forEach((s) => $(s).addEventListener('change', renderOrders));
   $('#fSearch').addEventListener('input', renderOrders);
-  $('#importEmployee').addEventListener('change', () => {
-    const rec = (data.settings.sheetUrls || []).find((u) => u.employeeId === Number($('#importEmployee').value));
-    $('#importUrl').value = rec ? rec.url : '';
-  });
-  const importStatus = (msg, cls) => { const el = $('#importStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
-  const afterImport = (r) => {
-    if (!r) { importStatus('Скасовано'); return; }
-    importStatus(`Прочитано рядків: ${r.parsed}. Додано нових: ${r.added}, оновлено статус/суму: ${r.updated}.`, 'ok');
-    reload(r.data);
-  };
-  $('#importUrlBtn').addEventListener('click', async () => {
-    const url = $('#importUrl').value.trim(), employeeId = Number($('#importEmployee').value);
-    if (!employeeId) return importStatus('Спочатку додайте працівника', 'err');
-    if (!url) return importStatus('Вставте посилання на таблицю', 'err');
-    importStatus('Завантажую…');
-    $('#importUrlBtn').disabled = true;
-    try { afterImport(await window.api.importUrl({ url, employeeId, date: $('#importDate').value, defaultStatus: $('#importDefaultStatus').value })); }
-    catch (e) { importStatus('Помилка: ' + (e.message || e).replace(/^.*Error: /, ''), 'err'); }
-    finally { $('#importUrlBtn').disabled = false; }
-  });
-  $('#importFileBtn').addEventListener('click', async () => {
-    const employeeId = Number($('#importEmployee').value);
-    if (!employeeId) return importStatus('Спочатку додайте працівника', 'err');
-    try { afterImport(await window.api.importFile({ employeeId, date: $('#importDate').value, defaultStatus: $('#importDefaultStatus').value })); }
-    catch (e) { importStatus('Помилка: ' + (e.message || e), 'err'); }
-  });
   // Нова Пошта
   const ttnStatus = (msg, cls) => { const el = $('#ttnStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
   const errMsg = (e) => (e.message || String(e)).replace(/^.*Error: /, '');
   $('#ttnAddBtn').addEventListener('click', async () => {
-    const employeeId = Number($('#ttnEmployee').value), numbers = $('#ttnNumbers').value.trim();
-    if (!employeeId) return ttnStatus('Спочатку додайте працівника', 'err');
+    const numbers = $('#ttnNumbers').value.trim();
+    if (!data.employees.length) return ttnStatus('Спочатку додайте працівника й прив’яжіть до нього кабінети в Налаштуваннях', 'err');
     if (!numbers) return ttnStatus('Вставте номер ТТН', 'err');
     ttnStatus('Шукаю в Новій Пошті та на маркетплейсах…');
     $('#ttnAddBtn').disabled = true;
     try {
-      const r = await window.api.npAdd({ employeeId, numbers });
+      const r = await window.api.npAdd({ numbers });
       const parts = [`Додано: ${r.added}, оновлено: ${r.updated}.`];
+      if (r.noEmployee.length) parts.push(`Не додано — не знайдено в кабінетах працівників (чиє це?): ${r.noEmployee.join(', ')}.`);
       if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
       if (r.noAmount.length) parts.push(`Без суми (вкажіть вручну): ${r.noAmount.length}.`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
@@ -409,8 +378,9 @@ function bind() {
     if (!text.trim()) return pasteStatus('Вставте рядки з таблиці', 'err');
     pasteStatus('Шукаю в Новій Пошті та на маркетплейсах…'); $('#pasteBtn').disabled = true;
     try {
-      const r = await window.api.importPaste({ text, employeeId: Number($('#pasteEmployee').value) || 0 });
+      const r = await window.api.importPaste({ text });
       const parts = [`Рядків: ${r.parsed}. Додано: ${r.added}, оновлено: ${r.updated}.`];
+      if (r.noEmployee.length) parts.push(`Не додано — не знайдено в кабінетах працівників (чиє це?): ${r.noEmployee.join(', ')}.`);
       if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
       if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);
       if (r.unknown.length) parts.push(`Пропущено рядків: ${r.unknown.length} (${r.unknown.slice(0, 3).map((u) => `«${u.line.slice(0, 70)}» — ${u.reason}`).join('; ')}${r.unknown.length > 3 ? '…' : ''}).`);

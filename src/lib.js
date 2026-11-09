@@ -17,32 +17,6 @@ const STATUS = {
 const DEFAULT_EMPLOYEES = ['Горбенко', 'Левченко', 'Товкес', 'Гаєвська', 'Настя', 'Корнійчук'];
 
 // ---------- CSV ----------
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let quoted = false;
-  const s = text.replace(/^﻿/, '');
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (quoted) {
-      if (ch === '"') {
-        if (s[i + 1] === '"') { field += '"'; i++; } else { quoted = false; }
-      } else field += ch;
-    } else if (ch === '"') {
-      quoted = true;
-    } else if (ch === ',') {
-      row.push(field); field = '';
-    } else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && s[i + 1] === '\n') i++;
-      row.push(field); field = '';
-      rows.push(row); row = [];
-    } else field += ch;
-  }
-  if (field !== '' || row.length) { row.push(field); rows.push(row); }
-  return rows;
-}
-
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -52,86 +26,7 @@ function toCsv(rows) {
   return '﻿' + rows.map((r) => r.map(csvEscape).join(',')).join('\r\n') + '\r\n';
 }
 
-// ---------- Google Таблиці ----------
-// Посилання на таблицю -> адреса експорту CSV (без входу, якщо доступ «усім за посиланням»).
-function sheetExportUrl(url) {
-  const m = /docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(url || '');
-  if (!m) return null;
-  const gid = /[?#&]gid=(\d+)/.exec(url);
-  return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv` + (gid ? `&gid=${gid[1]}` : '');
-}
-
-function parseAmount(v) {
-  if (v == null) return null;
-  const s = String(v).replace(/\s/g, '').replace(',', '.');
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
-  return Math.round(parseFloat(s) * 100) / 100;
-}
-
-function statusFromText(t, d) {
-  const s = (t || '').trim();
-  const dd = (d || '').trim().toUpperCase();
-  if (/^ОК/i.test(s)) return 'ok';
-  if (/ОТКАЗ|ВІДМОВ|ВОЗВРАТ|ПОВЕРН/i.test(s) || dd === 'ОТКАЗ' || dd === 'ВОЗВРАТ') return 'refused';
-  if (/ОТМЕНА|СКАСОВ/i.test(s) || dd === 'ОТМЕНА') return 'cancelled';
-  if (/не найден|не знайден/i.test(s) || dd === 'НЕТ ДАННЫХ') return 'nodata';
-  return 'checking';
-}
-
-// Рядок аркуша «Лист2» (без заголовків):
-// B товар, C номер ТТН/замовлення, D сума або ОТКАЗ/ОТМЕНА/НЕТ ДАННЫХ,
-// G/I/K/M суми НП/Rozetka/Prom/Епіцентр, Q/R/S канал, T підсумковий статус.
-function mapSheetRow(cols, opts) {
-  const col = (i) => (cols[i] == null ? '' : String(cols[i]).trim());
-  // Простий аркуш «номер + сума» (як «Лист 1 мама»): A номер, B сума, далі порожньо.
-  if (col(0) && parseAmount(col(1)) != null && !cols.slice(2).some((c) => c != null && String(c).trim())) {
-    const a = col(0);
-    if (!/\d{6,}/.test(a)) return null; // рядок-заголовок
-    const isRozetka = /розетка|rozetka/i.test(a);
-    return {
-      employeeId: opts.employeeId,
-      product: '',
-      number: a.replace(/розетка|rozetka/ig, '').replace(/\s+/g, ' ').trim(),
-      amount: parseAmount(col(1)),
-      channel: isRozetka ? 'Rozetka' : '',
-      status: STATUS[opts.defaultStatus] ? opts.defaultStatus : 'ok',
-      date: opts.date,
-    };
-  }
-  const product = col(1);
-  const number = col(2).replace(/\s+/g, ' ');
-  const d = col(3);
-  if (!product && !number) return null;
-  let amount = parseAmount(d);
-  if (amount == null) {
-    for (const i of [10, 8, 12, 6]) { // K Prom, I Rozetka, M Епіцентр, G НП
-      const a = parseAmount(col(i));
-      if (a) { amount = a; break; }
-    }
-  }
-  const channel = col(16) || col(17) || col(18) || '';
-  const status = statusFromText(col(19), d);
-  return {
-    employeeId: opts.employeeId,
-    product,
-    number,
-    amount: amount == null ? 0 : amount,
-    channel,
-    status,
-    date: opts.date,
-  };
-}
-
-function importRows(rows, opts) {
-  const out = [];
-  for (const r of rows) {
-    const o = mapSheetRow(r, opts);
-    if (o) out.push(o);
-  }
-  return out;
-}
-
-// Злиття імпортованих замовлень у наявні: ключ — працівник + номер.
+// Злиття доданих замовлень у наявні: ключ — працівник + номер.
 // Повертає {added, updated, orders}. Статус/суму оновлює, дату й товар лишає.
 function mergeOrders(existing, incoming, nextId) {
   const byKey = new Map();
@@ -323,6 +218,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, statusDetail, parseCsv, toCsv, sheetExportUrl, parseAmount, statusFromText, mapSheetRow, importRows, mergeOrders,
+  SOURCE, statusDetail, toCsv, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };

@@ -16,13 +16,12 @@ const ROUTES_DOC = [
   ['GET', '/api/orders?employee=&period=&status=&q=&source=&format=', 'замовлення з фільтрами (employee — id або ім’я; source — auto|manual; format=xlsx|csv — файлом)'],
   ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?, source?}; без id — злиття за номером у своєму наборі'],
   ['DELETE', '/api/orders/:id', 'видалити замовлення'],
-  ['POST', '/api/import', '{employee, url} або {employee, csv, date?, defaultStatus?} — імпорт аркуша'],
-  ['POST', '/api/import/paste', '{text, employee?} — рядки «товар ⇥ ТТН ⇥ працівник», скопійовані з таблиці (employee — для рядків без імені); пошук за номерами'],
+  ['POST', '/api/import/paste', '{text, employee?} — рядки «товар ⇥ ТТН», скопійовані з таблиці (можна й колонку з працівником); працівника визначає кабінет, що знайшов замовлення'],
   ['GET', '/api/shipments?employee=&period=YYYY-MM', 'замовлення з кабінетів маркетплейсів за місяць (без запису)'],
   ['POST', '/api/shipments/add', '{employee?, period} — зібрати з кабінетів і додати в замовлення'],
   ['POST', '/api/sync', 'автоматичне оновлення зараз: зібрати з кабінетів і перевірити за поточний і попередній місяць'],
   ['GET', '/api/track?numbers=a,b', 'пошук за номерами (НП + маркетплейси) без запису в базу'],
-  ['POST', '/api/track', '{employee, numbers: [...] | "…", channel?} — додати/оновити замовлення за номерами'],
+  ['POST', '/api/track', '{numbers: [...] | "…", employee?, channel?} — додати/оновити замовлення за номерами; без employee працівника визначає кабінет, що знайшов замовлення'],
   ['POST', '/api/track/refresh', '{ids?} або {employee?, period?, status?, q?, source?}, withDate? — перевірити наявні замовлення'],
   ['GET', '/api/export?format=xlsx|csv&period=&source=', 'файл розрахунку'],
   ['GET', '/api/data', 'уся база (резервна копія JSON)'],
@@ -111,12 +110,6 @@ function createApi(service, appInfo) {
         const b = json() || {};
         const c = await service.collectShipments({ employee: b.employee, period: b.period });
         return send(res, 200, Object.assign(service.addShipments(c.items), { collected: c.items.length, errors: c.errors }));
-      }
-      if (m === 'POST' && p === '/api/import') {
-        const b = json();
-        if (b.url) return send(res, 200, await service.importFromUrl(b.url, b));
-        if (typeof b.csv === 'string') return send(res, 200, service.importCsvText(b.csv, b));
-        throw new ApiError(400, 'Потрібно url або csv');
       }
       if (m === 'GET' && p === '/api/export') {
         const f = service.exportBuffer(q.format || 'xlsx', q.period || '', q.source);

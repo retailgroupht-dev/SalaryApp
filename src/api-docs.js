@@ -42,7 +42,7 @@ ${authNote}
 
 **Два набори замовлень.** Кожне замовлення належить одному з наборів (\`source\`):
 \`auto\` — веде програма сама (збір із кабінетів Prom / Rozetka / Епіцентр, автоматичне оновлення);
-\`manual\` — з реальних даних (імпорт аркуша Google Таблиці, вставлені рядки, додані за номером або руками).
+\`manual\` — з реальних даних (вставлені з таблиці рядки, додані за номером або руками).
 Набори не змішуються: повтори зливаються лише всередині свого набору. Зарплата рахується за одним набором
 (\`source\` у запиті або \`salarySource\` у налаштуваннях, типово \`auto\`); будь-який набір вивантажується файлом через \`GET /api/orders?format=xlsx\`.
 
@@ -136,24 +136,25 @@ curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/orders" -d 
 Дата — з маркетплейсу, інакше дата накладної.
 
 - \`GET /api/track?numbers=20450000000000,PRM-700000000\` — лише подивитися, без запису: \`{results: [{number, found, status, problem, amount, amountSource, date, channel, product, note, np, mp, rd}], errors}\`.
-- \`POST /api/track\` з \`{"employee": "Настя", "numbers": ["2045…", "PRM-…"]}\` (\`numbers\` — масив або рядок через пробіл/кому; \`channel\`, \`product\` необов’язкові й лише для нових; \`source\` типово \`manual\`) — додає замовлення або оновлює наявні з тим самим номером. Відповідь \`{added, updated, notFound, noAmount, errors, orders}\`.
+- \`POST /api/track\` з \`{"numbers": ["2045…", "PRM-…"]}\` (\`numbers\` — масив або рядок через пробіл/кому; \`channel\`, \`product\` необов’язкові й лише для нових; \`source\` типово \`manual\`) — додає замовлення або оновлює наявні з тим самим номером. Працівника вказувати не треба: пошук іде всіма ключами, а чиє замовлення, каже кабінет, у якому воно знайшлося (кабінет маркетплейсу з \`employeeId\`, інакше ключ відправника Нової Пошти з \`employeeId\`); якщо такого немає — наявне замовлення з цим номером у наборі, а коли працівник у базі один — він. Номери, чийого власника визначити не вдалося, не додаються й повертаються в \`noEmployee\`. \`"employee": "Настя"\` у тілі призначає всі номери вказаному працівникові. Відповідь \`{added, updated, notFound, noAmount, noEmployee, errors, orders}\`.
 - \`POST /api/track/refresh\` з \`{"ids": [1000, 1001]}\` або з фільтрами \`{"employee": "Настя", "period": "2026-11", "status": "checking", "source": "auto"}\` (порожнє тіло \`{}\` — усі замовлення обох наборів) — перевіряє наявні замовлення й оновлює статус, суму, канал і блок \`track\`; \`"withDate": true\` — також замінює дату. Замовлення без номера пропускаються. Відповідь \`{checked, updated, skipped, notFound, errors, changes: [{id, number, from, to}]}\`.
 
 \`\`\`bash
 curl${auth} "${base}/api/track?numbers=20451520852070"
 
 curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track" \\
-  -d '{"employee":"Настя","numbers":["20451520852070","20451521500117"]}'
+  -d '{"numbers":["20451520852070","20451521500117"]}'
 
 curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track/refresh" -d '{"status":"checking"}'
 \`\`\`
 
 ### Вставка з таблиці
 
-\`POST /api/import/paste\` з \`{"text": "…", "employee": "Настя"}\` — рядки, скопійовані з колонок Google Таблиці
-(товар, ТТН або номер і, необов’язково, працівник), розділені табуляцією; порядок колонок неважливий: номер
-упізнається за виглядом, працівник — за ім’ям, а рядки без імені отримують \`employee\` (без нього такі рядки пропускаються). Для кожного номера робиться пошук як у
-\`POST /api/track\` кабінетами цього працівника. Відповідь \`{parsed, added, updated, notFound, noAmount, errors, unknown: [{line, reason}]}\`.
+\`POST /api/import/paste\` з \`{"text": "…"}\` — рядки, скопійовані з колонок Google Таблиці (товар, ТТН або номер і,
+необов’язково, працівник), розділені табуляцією; порядок колонок неважливий: номер упізнається за виглядом, працівник —
+за ім’ям. Рядкам без імені працівника дає кабінет, який знайшов замовлення (як у \`POST /api/track\` без \`employee\`);
+\`"employee": "Настя"\` у тілі призначає такі рядки вказаному працівникові. Відповідь
+\`{parsed, added, updated, notFound, noAmount, noEmployee, errors, unknown: [{line, reason}]}\`.
 
 ### Відправлення з кабінетів
 
@@ -170,23 +171,6 @@ curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/track/refre
 статусом \`checking\`. Відповідь \`{months, collected, added, updated, checked, changed, errors}\`; якщо вже виконується — \`{skipped: true}\`.
 Розклад: \`PUT /api/settings\` з \`{"auto": {"enabled": true, "hours": 6}}\` (1, 3, 6, 12 або 24 години).
 
-### Імпорт аркуша
-
-\`POST /api/import\` з одним із варіантів тіла:
-
-- \`{"employee": "Настя", "url": "https://docs.google.com/spreadsheets/d/…/edit#gid=0"}\` — застосунок сам завантажить CSV (доступ до таблиці має бути «усім, хто має посилання», у посиланні має бути \`gid\` потрібного аркуша);
-- \`{"employee": "Товкес", "csv": "<текст CSV>", "date": "2026-11-05", "defaultStatus": "ok"}\`.
-
-Розуміє два формати аркуша: «Лист2» (B товар, C номер, D сума або ОТКАЗ/ОТМЕНА/НЕТ ДАННЫХ,
-Q/R/S канал, T підсумковий статус) і «номер + сума» (A номер, B сума; статус для таких рядків —
-\`defaultStatus\`, типово \`ok\`). Записи потрапляють у набір \`manual\`. Нові отримують дату з авто-набору,
-якщо програма вже знає цей ТТН, інакше \`date\` (типово сьогодні); повтори за номером оновлюються, дата й товар лишаються. Відповідь \`{parsed, added, updated, employeeId}\`.
-
-\`\`\`bash
-curl${auth} -X POST -H "Content-Type: application/json" "${base}/api/import" \\
-  -d '{"employee":"Настя","url":"https://docs.google.com/spreadsheets/d/1uZD6oE1j6znYm4K4XxwlXqwj5UJVKG8TyHHvfZKvBFs/edit#gid=0"}'
-\`\`\`
-
 ### Резервна копія
 
 - \`GET /api/data\` — уся база одним JSON (\`settings\`, \`employees\`, \`orders\`).
@@ -199,8 +183,8 @@ curl${auth} -X PUT -H "Content-Type: application/json" "${base}/api/data" --data
 
 ### Налаштування
 
-- \`GET /api/settings\` — поточні (ставка, збережені посилання на таблиці, параметри API, кабінети з ключами).
-- \`PUT /api/settings\` з \`{"ratePercent": 5}\` — змінити загальну ставку; з \`{"salarySource": "auto|manual"}\` — який набір рахувати в зарплаті; з \`{"accounts": [{"kind": "np|prom|rozetka|epicentr", "name": "Пром 2", "token": "…", "employeeId": 5}]}\` — замінити список кабінетів (назва кабінету стає каналом замовлення; \`employeeId\` порожній = спільний кабінет, інакше ним шукаються лише замовлення цього працівника).
+- \`GET /api/settings\` — поточні (ставка, набір для зарплати, параметри API, кабінети з ключами, автооновлення).
+- \`PUT /api/settings\` з \`{"ratePercent": 5}\` — змінити загальну ставку; з \`{"salarySource": "auto|manual"}\` — який набір рахувати в зарплаті; з \`{"accounts": [{"kind": "np|prom|rozetka|epicentr", "name": "Пром 2", "token": "…", "employeeId": 5}]}\` — замінити список кабінетів (назва кабінету стає каналом замовлення; \`employeeId\` — чиї замовлення в цьому кабінеті: знайдене ним замовлення отримує цього працівника; порожній = спільний кабінет, він власника не визначає).
 - \`POST /api/settings/accounts/import\` з \`{"script": "<код Apps Script таблиці>", "employee": "Настя"}\` — додати ключі з масивів \`NOVA_POSHTA_ACCOUNTS\`, \`PROM_ACCOUNTS\`, \`EPICENTER_ACCOUNTS\`, \`ROZETKA_ACCOUNTS\`, прив’язавши до працівника (без \`employee\` — спільні). Той самий ключ у двох працівників стає спільним. Відповідь \`{parsed, added, accounts}\`.
 - \`GET /api/settings/accounts/test\` — перевірити всі кабінети: \`[{name, kind, ok, message}]\`.
 

@@ -18,8 +18,6 @@ contextBridge.exposeInMainWorld('api', {
   syncRun: () => ipcRenderer.invoke('sync:run'),
   onSyncDone: (cb) => ipcRenderer.on('sync:done', (_e, r) => cb(r)),
   accountsTest: () => ipcRenderer.invoke('accounts:test'),
-  importUrl: (p) => ipcRenderer.invoke('import:url', p),
-  importFile: (p) => ipcRenderer.invoke('import:file', p),
   exportFile: (p) => ipcRenderer.invoke('export:file', p),
   exportOrders: (p) => ipcRenderer.invoke('orders:export', p),
   apiStatus: () => ipcRenderer.invoke('api:status'),

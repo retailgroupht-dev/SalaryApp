@@ -302,10 +302,12 @@ const epicentr = {
 
 const CHANNELS = { prom, rozetka, epicentr };
 
+// employeeId — чий кабінет знайшов замовлення (null = спільний кабінет).
 function describe(ch, o, account) {
   return {
     kind: ch.kind, channel: account.name, orderId: ch.orderId(o), status: ch.status(o), problem: ch.problem(o),
     amount: ch.amount(o), date: ch.date(o), product: ch.product(o), ttn: ch.ttn(o), done: ch.done(o),
+    employeeId: account.employeeId == null || account.employeeId === '' ? null : Number(account.employeeId),
   };
 }
 
@@ -321,7 +323,7 @@ async function listOrders(accounts, { from, to, fetch: fetchFn } = {}) {
       for (const o of await ch.list(account, { from, to, fetch: fetchFn })) {
         const d = ch.date(o);
         if (d && (d < from || d > to)) continue;
-        items.push(Object.assign(describe(ch, o, account), { employeeId: account.employeeId == null ? null : Number(account.employeeId) }));
+        items.push(describe(ch, o, account));
       }
     } catch (e) { errors.push(`${account.name}: ${e.message || e}`); }
   }

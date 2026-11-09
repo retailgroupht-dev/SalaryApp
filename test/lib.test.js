@@ -4,55 +4,6 @@ const assert = require('node:assert');
 const zlib = require('zlib');
 const lib = require('../src/lib');
 
-test('parseCsv: лапки, коми, переноси', () => {
-  const rows = lib.parseCsv('a,"b,c","d ""e""",f\r\n1,2,3\n');
-  assert.deepStrictEqual(rows, [['a', 'b,c', 'd "e"', 'f'], ['1', '2', '3']]);
-});
-
-test('sheetExportUrl', () => {
-  assert.strictEqual(
-    lib.sheetExportUrl('https://docs.google.com/spreadsheets/d/ABC_123/edit?usp=sharing#gid=77'),
-    'https://docs.google.com/spreadsheets/d/ABC_123/export?format=csv&gid=77');
-  assert.strictEqual(lib.sheetExportUrl('https://example.com'), null);
-});
-
-test('mapSheetRow: звичайне замовлення Rozetka', () => {
-  // A B C D E F G H I J K L M N O P Q R S T
-  const cols = ['', 'чохол (XJ3277)', '20451522420002', '199', '', '', '', 'Замовлення виконано', '199',
-    'Заказ Prom.ua не найден', '0', 'Заказ Епіцентр не найден', '0', '', '', '', 'Rozetka', '', '', 'ОК'];
-  const o = lib.mapSheetRow(cols, { employeeId: 5, date: '2026-11-05' });
-  assert.deepStrictEqual(o, {
-    employeeId: 5, product: 'чохол (XJ3277)', number: '20451522420002', amount: 199,
-    channel: 'Rozetka', status: 'ok', date: '2026-11-05',
-  });
-});
-
-test('mapSheetRow: ОТКАЗ бере суму з Prom, статус відмова', () => {
-  const cols = ['', 'сухпай 14шт', '20451522315648', 'ОТКАЗ', '', 'ОТКАЗ — Відмова від отримання', '5600',
-    'Проверяется...', '0', 'Выполнен', '5600', 'Заказ Епіцентр не найден', '0', '', '', '', '', 'Пром 2', '', 'ОТКАЗ (Новая почта)'];
-  const o = lib.mapSheetRow(cols, { employeeId: 1, date: '2026-11-05' });
-  assert.strictEqual(o.status, 'refused');
-  assert.strictEqual(o.amount, 5600);
-  assert.strictEqual(o.channel, 'Пром 2');
-});
-
-test('mapSheetRow: порожній рядок пропускається, НЕТ ДАННЫХ -> nodata', () => {
-  assert.strictEqual(lib.mapSheetRow(['', '', '', '', '', '', '', 'Проверяется...'], { employeeId: 1 }), null);
-  const o = lib.mapSheetRow(['', 'компас', '1', 'НЕТ ДАННЫХ', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Заказ не найден ни в одном канале'], { employeeId: 1, date: '2026-11-05' });
-  assert.strictEqual(o.status, 'nodata');
-  assert.strictEqual(o.amount, 0);
-});
-
-test('mapSheetRow: аркуш «номер + сума» (Лист 1 мама)', () => {
-  assert.strictEqual(lib.mapSheetRow(['c', '1200'], { employeeId: 2 }), null);
-  const o = lib.mapSheetRow(['20451478799868', '247'], { employeeId: 2, date: '2026-11-05' });
-  assert.deepStrictEqual(o, { employeeId: 2, product: '', number: '20451478799868', amount: 247, channel: '', status: 'ok', date: '2026-11-05' });
-  const r = lib.mapSheetRow([' 201610116718 розетка', '350', '', ''], { employeeId: 2, date: '2026-11-05', defaultStatus: 'checking' });
-  assert.strictEqual(r.number, '201610116718');
-  assert.strictEqual(r.channel, 'Rozetka');
-  assert.strictEqual(r.status, 'checking');
-});
-
 test('mergeOrders: дублікати за номером оновлюються, нові додаються', () => {
   let id = 1;
   const existing = [{ id: 1, employeeId: 1, number: 'A', amount: 100, status: 'checking', channel: '', date: '2026-10-01' }];

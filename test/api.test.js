@@ -112,15 +112,17 @@ test('API: health, працівники, замовлення, зарплата,
   } finally { await t.cleanup(); }
 });
 
-test('API: імпорт CSV, резервна копія, ставка', async () => {
+test('API: замовлення руками, резервна копія, ставка', async () => {
   const t = await setup();
   try {
-    const csv = ',чохол,20451522420002,199,,,,Замовлення виконано,199,Заказ Prom.ua не найден,0,Заказ Епіцентр не найден,0,,,,Rozetka,,,ОК\n,компас,20451522420003,ОТКАЗ,,,,,,Выполнен,300,,,,,,,Пром 1,,ОТКАЗ (Новая почта)\n';
-    let r = await t.call('POST', '/api/import', { employee: 'Товкес', csv, date: '2026-11-05' });
+    let r = await t.call('POST', '/api/orders', [
+      { employee: 'Товкес', product: 'чохол', number: '20451522420002', amount: 199, channel: 'Rozetka', status: 'ok', date: '2026-11-05' },
+      { employee: 'Товкес', product: 'компас', number: '20451522420003', amount: 300, channel: 'Пром 1', status: 'refused', date: '2026-11-05' },
+    ]);
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added }, { parsed: 2, added: 2 });
-    r = await t.call('POST', '/api/import', { employee: 'Товкес' });
-    assert.strictEqual(r.status, 400);
+    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated }, { added: 2, updated: 0 });
+    r = await t.call('GET', '/api/import');
+    assert.strictEqual(r.status, 404); // імпорту аркуша більше немає
 
     r = await t.call('PUT', '/api/settings', { ratePercent: 7.5 });
     assert.strictEqual(r.body.ratePercent, 7.5);
@@ -198,26 +200,38 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     assert.ok(r.body.every((x) => x.ok), JSON.stringify(r.body));
     r = await t.call('POST', '/api/track', { employee: 'Хтось', numbers: ['20451520852070'] });
     assert.strictEqual(r.status, 400);
+    // без працівника: кабінети спільні (без employeeId) власника не визначають → відомий номер лишається в того,
+    // у кого він уже є в наборі, а новий не додається й повертається в noEmployee
+    r = await t.call('POST', '/api/track', { numbers: ['20451520852070', '20459999999998'] });
+    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, noEmployee: r.body.noEmployee }, { added: 0, updated: 1, noEmployee: ['20459999999998'] }); // updated: сума 350 з форми знову 300 з Prom
+    assert.strictEqual(t.service.data.orders.length, 4);
   } finally { await t.cleanup(); }
 });
 
 test('API: вставка з таблиці, відправлення з кабінетів, кабінети працівника', async () => {
   const t = await setup();
   try {
-    // кабінет Prom належить Насті; у Товкеса кабінетів немає → його номери шукаються лише в НП
+    // кабінет Prom належить Насті: знайдене ним замовлення — її, навіть якщо працівника не вказано
     let r = await t.call('PUT', '/api/settings', { accounts: [{ kind: 'prom', name: 'Пром Насті', token: 'p', employeeId: t.service.resolveEmployee('Настя').id }] });
     assert.strictEqual(r.body.accounts[0].employeeId, t.service.resolveEmployee('Настя').id);
 
+    // ім’я в рядку має перевагу над кабінетом; рядок без імені, якого нема в кабінетах працівників, не додається
     r = await t.call('POST', '/api/import/paste', { text: 'щітка\t20451520852070\tНастя\nкомпас\t20451520852070\tТовкес\nбез номера\t\tНастя\nщось\t20451535524936\tНевідомий\n' });
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added, unknownReasons: r.body.unknown.map((u) => u.reason) }, { parsed: 2, added: 2, unknownReasons: ['немає номера ТТН', 'не впізнано працівника (виберіть працівника для рядків без імені)'] });
+    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added, noEmployee: r.body.noEmployee, unknownReasons: r.body.unknown.map((u) => u.reason) }, { parsed: 3, added: 2, noEmployee: ['20451535524936'], unknownReasons: ['немає номера ТТН'] });
     const nastya = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Настя').id);
     const tovkes = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Товкес').id);
     assert.deepStrictEqual({ product: nastya.product, amount: nastya.amount, channel: nastya.channel, date: nastya.date }, { product: 'щітка', amount: 300, channel: 'Пром Насті', date: '2026-08-30' });
-    assert.deepStrictEqual({ product: tovkes.product, amount: tovkes.amount, channel: tovkes.channel, date: tovkes.date }, { product: 'компас', amount: 278, channel: '', date: '2026-09-01' }); // лише НП
+    assert.deepStrictEqual({ product: tovkes.product, amount: tovkes.amount, channel: tovkes.channel, date: tovkes.date }, { product: 'компас', amount: 300, channel: 'Пром Насті', date: '2026-08-30' }); // пошук усіма ключами
     // порядок колонок неважливий
     r = await t.call('POST', '/api/import/paste', { text: 'Настя\t20451521500117\tпончо' });
     assert.strictEqual(r.body.added, 1);
+    // без імені й без параметра: працівника дає кабінет (Prom Насті); № замовлення кабінету = те саме замовлення, не дубль
+    r = await t.call('POST', '/api/import/paste', { text: 'лампа\t20451520852070' });
+    assert.deepStrictEqual({ parsed: r.body.parsed, added: r.body.added, updated: r.body.updated, noEmployee: r.body.noEmployee }, { parsed: 1, added: 0, updated: 0, noEmployee: [] });
+    r = await t.call('POST', '/api/track', { numbers: ['777'] });
+    assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, id: r.body.orders[0].id }, { added: 0, updated: 0, id: nastya.id });
+    assert.strictEqual(t.service.data.orders.filter((o) => o.employeeId === nastya.employeeId).length, 2);
     // лише дві колонки (товар і ТТН) — працівник з параметра; ім’я в рядку має перевагу; код посилки всередині клітинки з товаром
     r = await t.call('POST', '/api/import/paste', { text: 'шпалери\t20451521500117\nщітка\t20451520852070\tТовкес\nчохли на велик (XJ3277) 3шт RMP-1037574\t', employee: 'Настя' });
     assert.deepStrictEqual({ parsed: r.body.parsed, updated: r.body.updated, unknown: r.body.unknown.length }, { parsed: 3, updated: 0, unknown: 0 });
@@ -247,11 +261,6 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.ok(r.headers.get('content-disposition').includes('attachment') && r.body.toString('utf8').includes('Дата,Працівник,Товар,ТТН,№ замовлення'));
     r = await t.call('GET', '/api/orders?source=auto&format=xlsx');
     assert.strictEqual(r.body.readUInt32LE(0), 0x04034b50);
-    // імпорт аркуша в manual: новий рядок бере дату з авто-набору, якщо програма знає цей ТТН
-    r = await t.call('POST', '/api/import', { employee: 'Настя', csv: ',ліхтар,20451520852070,500,,,,Замовлення виконано,500,,,,,,,,Rozetka,,,ОК\n', date: '2026-11-05' });
-    assert.strictEqual(r.body.added, 1);
-    const imported = t.service.data.orders.find((o) => o.source === 'manual' && o.employeeId === nastya.employeeId && o.number === '20451520852070');
-    assert.strictEqual(imported.date, '2026-08-30');
     // рядок таблиці Товкеса з ТТН, який є лише в кабінеті Насті: суму й товар дає авто-набір
     tovkes.number = '20451520852070'; tovkes.amount = 0; tovkes.product = '';
     t.service.applyTracking(tovkes, { status: 'ok', amount: null, channel: '', product: '', date: '', note: 'Нова Пошта: Відправлення отримано', np: { status: 'Відправлення отримано', code: '9' } });

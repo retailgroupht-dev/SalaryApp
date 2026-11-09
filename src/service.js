@@ -17,14 +17,6 @@ class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-async function fetchText(url) {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) throw new ApiError(502, `HTTP ${res.status} при завантаженні таблиці`);
-  const ct = res.headers.get('content-type') || '';
-  if (ct.includes('text/html')) throw new ApiError(502, 'Google повернув сторінку входу: відкрийте доступ «усім, хто має посилання»');
-  return res.text();
-}
-
 class Service {
   // opts.fetch — підміна fetch для Нової Пошти в тестах.
   constructor(store, opts = {}) { this.store = store; this.fetch = opts.fetch || null; this.migrateNumbers(); }
@@ -217,30 +209,6 @@ class Service {
       && (!qq || (o.product || '').toLowerCase().includes(qq) || (o.number || '').toLowerCase().includes(qq) || (o.orderId || '').toLowerCase().includes(qq)));
   }
 
-  // ---------- імпорт ----------
-  importCsvText(text, { employee, employeeId, date, defaultStatus } = {}) {
-    const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
-    const rows = lib.parseCsv(text);
-    const incoming = lib.importRows(rows, { employeeId: emp.id, date: isDate(date) ? date : todayLocal(), defaultStatus });
-    // У таблиці дати немає: для нових рядків беремо дату з авто-набору, якщо програма вже знає цей ТТН (у будь-кого).
-    for (const o of incoming) { const a = this.findExisting(null, o.number, { source: 'auto' }); if (a && a.date) o.date = a.date; }
-    const r = this.mergeInto('manual', incoming);
-    this.store.save();
-    return { added: r.added, updated: r.updated, parsed: incoming.length, employeeId: emp.id };
-  }
-
-  async importFromUrl(url, opts = {}) {
-    const exportUrl = lib.sheetExportUrl(url);
-    if (!exportUrl) throw new ApiError(400, 'Це не посилання на Google Таблицю');
-    const text = await fetchText(exportUrl);
-    const res = this.importCsvText(text, opts);
-    const urls = (this.data.settings.sheetUrls || []).filter((u) => u.employeeId !== res.employeeId);
-    urls.push({ employeeId: res.employeeId, url });
-    this.data.settings.sheetUrls = urls;
-    this.store.save();
-    return res;
-  }
-
   // ---------- кабінети (ключі) ----------
   // Кабінет: {kind, name, token, employeeId}. employeeId null = спільний для всіх працівників.
   // Той самий ключ у двох працівників (напр. Нова Пошта чи Rozetka в обох таблицях) → спільний.
@@ -315,14 +283,23 @@ class Service {
   }
 
   // ---------- пошук за номером (Нова Пошта + маркетплейси) ----------
-  // Без запису в базу: {results: [...], errors: [..]}.
-  // employeeId — шукати лише його кабінетами (+ спільними); без нього — усіма.
-  async trackNumbers(numbers, employeeId) {
+  // Без запису в базу: {results: Map(номер → зведення), errors: [..]}. Шукає всіма ключами: за початком номера
+  // видно, кого питати (14 цифр — Нова Пошта, PRM-/RMP- — Rozetka Delivery, решта — номер замовлення),
+  // а кабінет, який знайшов замовлення, каже, чиє воно (зведення.employeeId; null — спільний кабінет).
+  async trackNumbers(numbers) {
     const list = [...new Set((Array.isArray(numbers) ? numbers : String(numbers || '').split(/[\s,;]+/)).map((n) => String(n || '').trim()).filter(Boolean))];
     if (!list.length) return { results: new Map(), errors: [] };
-    const accounts = employeeId != null ? this.accountsFor(employeeId) : this.data.settings.accounts;
-    try { return await lookup(list, accounts, { fetch: this.fetch }); }
+    try { return await lookup(list, this.data.settings.accounts, { fetch: this.fetch }); }
     catch (e) { throw new ApiError(502, e.message || String(e)); }
+  }
+
+  // Чиє це замовлення, коли працівника не вказано: кабінет, що його знайшов; інакше — наявне замовлення
+  // з цим номером у наборі; якщо працівник у базі один — він. null = не визначено.
+  ownerOf(number, t, source) {
+    if (t.employeeId != null && this.data.employees.some((e) => e.id === t.employeeId)) return t.employeeId;
+    const known = this.findExisting(null, number, { kind: t.mp && t.mp.kind, orderId: t.mp && t.mp.orderId, source });
+    if (known) return known.employeeId;
+    return this.data.employees.length === 1 ? this.data.employees[0].id : null;
   }
 
   // Наявне замовлення працівника з тим самим номером — точно або за кодом посилки/ТТН усередині
@@ -374,21 +351,26 @@ class Service {
   }
 
   // Додати замовлення за номерами (ТТН, PRM-…, номер замовлення): статус, сума, дата, канал — з джерел.
+  // Працівника вказувати не обов’язково: його визначає кабінет, який знайшов замовлення (ownerOf);
+  // номери, чий власник не визначився, не додаються і повертаються в noEmployee.
   // Повтор за «працівник + номер» оновлюється, а не дублюється.
   // products: {номер → назва товару} (необов’язково, для вставки з таблиці).
   // Номери, які вводять руками або вставляють з таблиці, → набір manual.
   async addByTtn({ employee, employeeId, numbers, channel, product, products, source } = {}) {
-    const emp = this.requireEmployee(employeeId != null ? employeeId : employee);
+    const ref = employeeId != null && employeeId !== '' ? employeeId : employee;
+    const emp = ref != null && ref !== '' ? this.requireEmployee(ref) : null;
     source = source === 'auto' ? 'auto' : 'manual';
-    const { results, errors } = await this.trackNumbers(numbers, emp.id);
-    const res = { added: 0, updated: 0, notFound: [], noAmount: [], errors, orders: [] };
+    const { results, errors } = await this.trackNumbers(numbers);
+    const res = { added: 0, updated: 0, notFound: [], noAmount: [], noEmployee: [], errors, orders: [] };
     for (const [number, t] of results) {
+      const ownerId = emp ? emp.id : this.ownerOf(number, t, source);
+      if (ownerId == null) { res.noEmployee.push(number); continue; }
       if (!t.found) { res.notFound.push(number); }
-      let o = this.findExisting(emp.id, number, { source });
+      let o = this.findExisting(ownerId, number, { source, kind: t.mp && t.mp.kind, orderId: t.mp && t.mp.orderId });
       if (o) { if (this.applyTracking(o, t)) res.updated++; }
       else {
         if (!t.found && source !== 'manual') continue; // рядок таблиці лишається й без даних (як «НЕТ ДАННЫХ» у таблиці)
-        o = this.normalizeOrder({ employeeId: emp.id, number, source, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
+        o = this.normalizeOrder({ employeeId: ownerId, number, source, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
         this.data.orders.push(o);
@@ -410,14 +392,10 @@ class Service {
     const withNumber = orders.filter((o) => o.number);
     res.skipped = orders.length - withNumber.length;
     if (!withNumber.length) return res;
-    const results = new Map();
-    for (const empId of new Set(withNumber.map((o) => o.employeeId))) {
-      const r = await this.trackNumbers(withNumber.filter((o) => o.employeeId === empId).map((o) => o.number), empId);
-      for (const [n, t] of r.results) results.set(empId + '|' + n, t);
-      res.errors.push(...r.errors);
-    }
+    const { results, errors } = await this.trackNumbers(withNumber.map((o) => o.number));
+    res.errors.push(...errors);
     for (const o of withNumber) {
-      const t = results.get(o.employeeId + '|' + o.number);
+      const t = results.get(o.number);
       if (!t) continue;
       res.checked++;
       if (!t.found) res.notFound.push(o.number);
@@ -432,12 +410,13 @@ class Service {
   }
 
   // ---------- вставка з таблиці ----------
-  // Текст, скопійований із трьох колонок Google Таблиці (товар, ТТН/номер, працівник) у будь-якому
-  // порядку: колонки розділені табуляцією. Повертає {rows: [{product, number, employee}], unknown: [...]}.
-  // employee — працівник для рядків, у яких імені немає (вставка лише двох колонок: товар і ТТН).
+  // Текст, скопійований із колонок Google Таблиці (товар, ТТН/номер і, необов’язково, працівник) у будь-якому
+  // порядку: колонки розділені табуляцією. Повертає {rows: [{product, number, employeeId|null, employee}], unknown: [...]}.
+  // Рядки без імені (employeeId null) отримують працівника від кабінету, який знайде замовлення (addByTtn);
+  // employee — працівник для таких рядків, якщо його все ж вказали.
   parsePasted(text, employee) {
     const rows = [], unknown = [];
-    const fallback = employee ? this.requireEmployee(employee) : null;
+    const fallback = employee != null && employee !== '' ? this.requireEmployee(employee) : null;
     for (const raw of String(text || '').split(/\r?\n/)) {
       const cells = raw.split('\t').map((c) => c.trim());
       if (!cells.some(Boolean)) continue;
@@ -460,8 +439,7 @@ class Service {
       product = rest.join(' ');
       if (!emp) emp = fallback;
       if (!number) { unknown.push({ line: raw, reason: 'немає номера ТТН' }); continue; }
-      if (!emp) { unknown.push({ line: raw, reason: 'не впізнано працівника (виберіть працівника для рядків без імені)' }); continue; }
-      rows.push({ product, number, employeeId: emp.id, employee: emp.name });
+      rows.push({ product, number, employeeId: emp ? emp.id : null, employee: emp ? emp.name : '' });
     }
     return { rows, unknown };
   }
@@ -469,14 +447,14 @@ class Service {
   async addPasted(text, employee) {
     const { rows, unknown } = this.parsePasted(text, employee);
     if (!rows.length && !unknown.length) throw new ApiError(400, 'Порожній текст');
-    const res = { parsed: rows.length, added: 0, updated: 0, notFound: [], noAmount: [], errors: [], unknown };
+    const res = { parsed: rows.length, added: 0, updated: 0, notFound: [], noAmount: [], noEmployee: [], errors: [], unknown };
     for (const empId of new Set(rows.map((r) => r.employeeId))) {
       const mine = rows.filter((r) => r.employeeId === empId);
       const products = {};
       for (const r of mine) if (r.product) products[r.number] = r.product;
       const r = await this.addByTtn({ employeeId: empId, numbers: mine.map((x) => x.number), products });
       res.added += r.added; res.updated += r.updated;
-      res.notFound.push(...r.notFound); res.noAmount.push(...r.noAmount); res.errors.push(...r.errors);
+      res.notFound.push(...r.notFound); res.noAmount.push(...r.noAmount); res.noEmployee.push(...r.noEmployee); res.errors.push(...r.errors);
     }
     return res;
   }
