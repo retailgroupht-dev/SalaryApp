@@ -284,7 +284,7 @@ class Service {
 
   // ---------- пошук за номером (Нова Пошта + маркетплейси) ----------
   // Без запису в базу: {results: Map(номер → зведення), errors: [..]}. Шукає всіма ключами: за початком номера
-  // видно, кого питати (14 цифр — Нова Пошта, PRM-/RMP- — Rozetka Delivery, решта — номер замовлення),
+  // видно, кого питати (14 цифр — Нова Пошта, PRM-/RMP- або 12 цифр — Rozetka Delivery, решта — номер замовлення),
   // а кабінет, який знайшов замовлення, каже, чиє воно (зведення.employeeId; null — спільний кабінет).
   async trackNumbers(numbers) {
     const list = [...new Set((Array.isArray(numbers) ? numbers : String(numbers || '').split(/[\s,;]+/)).map((n) => String(n || '').trim()).filter(Boolean))];

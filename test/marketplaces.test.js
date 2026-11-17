@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const mp = require('../src/marketplaces');
-const { combine } = require('../src/lookup');
+const { combine, lookup } = require('../src/lookup');
 
 // Підроблені маркетплейси: Prom (2 сторінки), Rozetka (пошук за ТТН і сторінки), Епіцентр, Rozetka Delivery.
 function fakeFetch(log) {
@@ -33,6 +33,10 @@ function fakeFetch(log) {
       if (url.endsWith('PRM-700000001')) return json({ data: { last_status: 60040, last_status_name: 'Відмова від одержання', last_status_date: '2026-08-17 14:19:43' } });
       if (url.endsWith('RMP-700000003')) { log.push('rd3'); return log.filter((x) => x === 'rd3').length < 3 ? json({}, 429) : json({ data: { last_status: 60030, last_status_name: 'Видано', last_status_date: '2026-08-18 10:00:00' } }); }
       if (url.endsWith('RMP-700000004')) return json({}, 429);
+      // живий формат відповіді на 12-значний номер без літер (знято 2026-11-17)
+      if (url.endsWith('/201666154468')) return json({ statusCode: 0, data: { id: '201666154468', last_status: 60040, last_status_name: 'Відмова від одержання', last_status_date: '2026-09-28 17:37:37', final_department: { name: 'Коломия' }, delivery_date: '2026-09-11 16:00:00', is_delayed: null, return_type: 'returned', is_cobranding_allowed: false } });
+      if (url.endsWith('/201000000002')) return json({ statusCode: 0, data: { id: '201000000002', last_status: 60030, last_status_name: 'Видано', last_status_date: '2026-10-02 12:00:00' } });
+      if (url.endsWith('/723-3819734')) return json({ statusCode: 400, message: 'Невірний формат ідентифікатора експрес-накладної', error: 'Bad Request' }, 400);
       return json({}, 404);
     }
     throw new Error('невідома адреса ' + url);
@@ -55,6 +59,11 @@ test('маркетплейси: ключі, дати, гроші, проблем
   assert.deepStrictEqual(mp.searchCandidates('20451579802951'), ['20451579802951']);
   assert.strictEqual(mp.rozetkaDeliveryId('RMP-243919525 723-4442154'), 'RMP-243919525');
   assert.strictEqual(mp.rozetkaDeliveryId('20451579802951'), '');
+  // 12 цифр без літер — теж Rozetka Delivery; телефон усередині тексту — ні
+  assert.strictEqual(mp.rozetkaDeliveryId('201666154468 розетка'), '201666154468');
+  assert.strictEqual(mp.rozetkaDeliveryId('201666154468'), '201666154468');
+  assert.strictEqual(mp.rozetkaDeliveryId('Біла Церква, НП 15, +380991709607'), '');
+  assert.strictEqual(mp.rozetkaDeliveryId('723-3819734'), '');
   assert.strictEqual(mp.parseMoney('790 грн'), 790);
   assert.strictEqual(mp.parseMoney('1 234,50'), 1234.5);
   assert.strictEqual(mp.dateOf('2026-11-05 15:49:55'), '2026-11-05');
@@ -113,6 +122,17 @@ test('Rozetka Delivery і перевірка кабінету', async () => {
   assert.deepStrictEqual({ found: rd.get('RMP-700000003').found, status: rd.get('RMP-700000003').status }, { found: true, status: 'Видано' });
   assert.deepStrictEqual({ found: rd.get('RMP-700000004').found, status: rd.get('RMP-700000004').status }, { found: false, status: 'HTTP 429' });
   assert.deepStrictEqual(waits, [250, 250, 2000, 5000, 250, 2000, 5000, 10000]);
+  // 12-значний номер без літер: кабінет каже «Принят», перевізник — відмова → статус відмова, а не «Перевіряється»
+  const noWait = async () => {};
+  const rd12 = await mp.rozetkaDelivery(['201666154468', '723-3819734', '201999999999'], { fetch: fakeFetch(log), sleep: noWait });
+  assert.deepStrictEqual({ found: rd12.get('201666154468').found, problem: rd12.get('201666154468').problem, date: rd12.get('201666154468').date }, { found: true, problem: 'ОТКАЗ', date: '2026-09-28' });
+  assert.deepStrictEqual([rd12.get('723-3819734'), rd12.get('201999999999')], [{ found: false, status: 'посилку не знайдено' }, { found: false, status: 'посилку не знайдено' }]);
+  const mpAccepted = { kind: 'prom', channel: 'Пром 3', orderId: '426565849', status: 'Принят', problem: '', amount: 1162.5, date: '2026-09-09', product: 'плівка', done: false };
+  assert.strictEqual(combine('201666154468 розетка', undefined, mpAccepted, undefined).status, 'checking'); // так було без перевізника
+  const lk = await lookup(['201666154468 розетка', '201000000002'], [], { fetch: fakeFetch(log), sleep: noWait });
+  assert.deepStrictEqual({ status: lk.results.get('201666154468 розетка').status, rd: lk.results.get('201666154468 розетка').rd.status }, { status: 'refused', rd: 'Відмова від одержання' });
+  assert.strictEqual(lk.results.get('201000000002').status, 'ok');
+  assert.strictEqual(combine('201666154468 розетка', undefined, mpAccepted, rd12.get('201666154468')).status, 'refused');
   const t = await mp.testAccount(ACCOUNTS[0], { fetch: fakeFetch(log) });
   assert.strictEqual(t.ok, true);
   assert.match(t.message, /910828670/);

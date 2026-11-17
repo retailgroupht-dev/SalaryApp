@@ -50,7 +50,7 @@ async function lookup(numbers, accounts, opts = {}) {
     const r = await mp.findOrders(pending, accounts, { fetch: fetchFn });
     mpFound = r.found; errors.push(...r.errors);
   }
-  const rdFound = rd.length ? await mp.rozetkaDelivery(rd, { fetch: fetchFn }) : new Map();
+  const rdFound = rd.length ? await mp.rozetkaDelivery(rd, { fetch: fetchFn, sleep: opts.sleep }) : new Map();
 
   const results = new Map();
   for (const p of pending) results.set(p.number, combine(p.number, npFound.get(p.number), mpFound.get(p.number), rdFound.get(mp.rozetkaDeliveryId(p.number))));

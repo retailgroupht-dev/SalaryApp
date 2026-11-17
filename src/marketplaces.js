@@ -71,7 +71,11 @@ function rozetkaDeliveryId(text) {
   const prm = /PRM[-\s]?(\d{6,})/.exec(s);
   if (prm) return 'PRM-' + prm[1];
   const other = /\b([A-Z]{2,4})[-\s](\d{6,})\b/.exec(s);
-  return other ? other[1] + '-' + other[2] : '';
+  if (other) return other[1] + '-' + other[2];
+  // Номер Rozetka Delivery без літер — рівно 12 цифр на початку («201666154468 розетка»); трекінг їх приймає
+  // (перевірено 2026-11-17). 14 цифр — Нова Пошта; 12 цифр усередині тексту — це телефон, не посилка.
+  const digits = /^\s*(\d{12})(?!\d)/.exec(s);
+  return digits ? digits[1] : '';
 }
 
 // Скасування / повернення / відмова за текстом статусу (укр/рос/англ) — як у скрипті.
@@ -406,7 +410,8 @@ async function rozetkaDelivery(ids, opts = {}) {
         if (res.status !== 429 || attempt >= RD_RETRY_MS.length) break;
         await sleep(RD_RETRY_MS[attempt]);
       }
-      if (res.status === 404) { out.set(id, { found: false, status: 'посилку не знайдено' }); continue; }
+      // 404 — такої накладної немає, 400 — «невірний формат ідентифікатора» (номер не цього перевізника)
+      if (res.status === 404 || res.status === 400) { out.set(id, { found: false, status: 'посилку не знайдено' }); continue; }
       if (res.status !== 200) { out.set(id, { found: false, status: `HTTP ${res.status}` }); continue; }
       const json = await res.json();
       const data = json.data || {};
