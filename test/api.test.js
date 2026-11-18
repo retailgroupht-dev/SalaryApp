@@ -455,3 +455,21 @@ test('статуси: старі «Перевіряється» з кодом Н
     assert.match(csv, /,в,.*,В обробці,/);
   } finally { await t.cleanup(); }
 });
+
+test('без ТТН і без № замовлення «Перевіряється» не буває: «Немає даних» з приміткою', async () => {
+  const t = await setup();
+  try {
+    const emp = t.service.data.employees[0].id;
+    t.service.data.orders.push({ id: 9201, employeeId: emp, number: '', orderId: '', kind: '', source: 'auto', amount: 50, status: 'checking', date: '2026-11-05', channel: '', product: 'г', track: null });
+    t.service.migrateNumbers();
+    assert.strictEqual(t.service.data.orders.find((o) => o.id === 9201).status, 'nodata');
+    const r = await t.call('POST', '/api/orders', { employee: emp, product: 'д', amount: 10, date: '2026-11-06' });
+    assert.strictEqual(r.status, 200);
+    const added = t.service.data.orders.find((o) => o.product === 'д');
+    assert.strictEqual(added.status, 'nodata');
+    const csv = t.service.exportOrdersBuffer('csv', { source: 'manual', period: '2026-11' }).buffer.toString('utf8');
+    assert.match(csv, /,д,.*,Немає даних,Немає ТТН чи номера замовлення/);
+    // з № замовлення є що перевіряти — лишається «Перевіряється»
+    assert.strictEqual(t.service.normalizeOrder({ employeeId: emp, orderId: '555', kind: 'prom' }).status, 'checking');
+  } finally { await t.cleanup(); }
+});

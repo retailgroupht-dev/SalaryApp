@@ -42,6 +42,8 @@ class Service {
       if (!lib.SOURCE[o.source]) { o.source = 'auto'; changed = true; } // база до розділення на два набори
       // невідправлена накладна НП (код 1) раніше лишалась «Перевіряється», тепер — «Немає даних» (2026-11-18)
       if (o.status === 'checking' && o.track && o.track.np && o.track.np.code === '1') { o.status = 'nodata'; changed = true; }
+      // «Перевіряється» без ТТН і без № замовлення — перевіряти нема чого (2026-11-18)
+      if (o.status === 'checking' && !o.number && !o.orderId) { o.status = 'nodata'; changed = true; }
     }
     const withTtn = new Set(this.data.orders.filter((o) => o.number && o.orderId).map((o) => `${o.source}|${o.employeeId}|${o.kind}|${o.orderId}`));
     const before = this.data.orders.length;
@@ -140,17 +142,20 @@ class Service {
   // ---------- замовлення ----------
   normalizeOrder(order) {
     const emp = this.requireEmployee(order.employeeId != null ? order.employeeId : order.employee);
+    const number = String(order.number || '').trim().replace(/\s+/g, ' '), orderId = String(order.orderId || '').trim();
+    let status = lib.STATUS[order.status] ? order.status : 'checking';
+    if (status === 'checking' && !number && !orderId) status = 'nodata'; // перевіряти нема чого (lib.NO_NUMBER)
     return {
       id: Number(order.id) || 0,
       employeeId: emp.id,
       product: String(order.product || '').trim(),
-      number: String(order.number || '').trim().replace(/\s+/g, ' '),
-      orderId: String(order.orderId || '').trim(),
+      number,
+      orderId,
       kind: mp.MP_ORDER.includes(order.kind) ? order.kind : '',
       source: order.source === 'auto' ? 'auto' : 'manual',
       amount: lib.round2(Number(order.amount) || 0),
       channel: String(order.channel || '').trim(),
-      status: lib.STATUS[order.status] ? order.status : 'checking',
+      status,
       date: isDate(order.date) ? order.date : todayLocal(),
       track: order.track && typeof order.track === 'object'
         ? { checked: String(order.track.checked || ''), note: String(order.track.note || ''), problem: String(order.track.problem || ''),
@@ -668,7 +673,7 @@ class Service {
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders(filters).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
     const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track)])];
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
     const source = filters.source ? (filters.source === 'auto' ? 'авто' : 'таблиця') : 'усі';
     const filename = `замовлення-${source}-${filters.period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Замовлення', rows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', count: orders.length };
@@ -685,7 +690,7 @@ class Service {
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders({ period, source }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
     const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track)])];
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
     const filename = `зарплата-${source === 'auto' ? 'авто' : 'таблиця'}-${period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, { name: 'Замовлення', rows: oRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...oRows]), 'utf8'), contentType: 'text/csv; charset=utf-8' };

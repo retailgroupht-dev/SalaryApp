@@ -117,7 +117,10 @@ function monthOf(date) { return (date || '').slice(0, 7); }
 // статус у кабінеті маркетплейсу. Довгі фрази НП скорочуються.
 const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
 const RD_ERROR = /^HTTP|з’єднання|не знайдено/; // Rozetka Delivery не відповіла або посилки не знає
-function statusDetail(track) {
+// order (необов’язково): запис без ТТН і без № замовлення — перевіряти нема чого.
+const NO_NUMBER = 'Немає ТТН чи номера замовлення';
+function statusDetail(track, order) {
+  if (order && !order.number && !order.orderId) return NO_NUMBER;
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;
   if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
@@ -290,6 +293,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, statusDetail, statusLabel, CHECKING_GROUP, splitPasted, htmlTable, toCsv, mergeOrders,
+  SOURCE, statusDetail, statusLabel, CHECKING_GROUP, NO_NUMBER, splitPasted, htmlTable, toCsv, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };
