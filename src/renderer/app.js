@@ -388,7 +388,7 @@ function bind() {
       const who = x.employee ? esc(x.employee) + (x.employeeGuess ? ' <span class="muted" title="Так записано в базі; остаточно визначить кабінет">(з бази)</span>' : '')
         : (bad ? '' : '<span class="muted">визначить кабінет</span>');
       const status = x.status ? ' · ' + badge(x.status) : '';
-      return `<tr class="${bad ? 'bad' : ''}"><td class="num">${x.row}</td>${Array.from({ length: cols }, (_, i) => `<td class="cell" title="${esc(x.cells[i] || '')}">${esc(x.cells[i] || '')}</td>`).join('')}
+      return `<tr class="${bad ? 'bad' : ''}"><td class="num">${x.row}</td>${Array.from({ length: cols }, (_, i) => `<td class="cell">${esc(x.cells[i] || '')}</td>`).join('')}
         <td class="calc nowrap">${esc(x.number)}</td><td class="calc">${who}</td><td class="calc num">${x.amount == null ? '—' : fmt(x.amount)}</td>
         <td class="calc">${bad ? esc(x.reason) : PASTE_STATE[x.state] + status}</td></tr>`;
     }).join('');

@@ -17,6 +17,9 @@ class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+// Коди всередині номера, за якими впізнається те саме замовлення: 14-значні ТТН і коди посилок (RMP-…, PRM-…).
+const numberCodes = (n) => [...(String(n || '').match(/\d{14}/g) || []), ...mp.parcelCodes(n)];
+
 // Чому рядок вставленого з таблиці не пораховано (addPasted → skipped[].reason).
 const SKIP = { noNumber: 'немає номера ТТН', duplicate: 'повтор номера у вставленому', noEmployee: 'не знайдено в кабінетах працівників' };
 
@@ -310,8 +313,18 @@ class Service {
   // Те саме замовлення працівника: за № замовлення в кабінеті (kind + orderId), за точним номером,
   // або за кодом посилки / 14-значним ТТН усередині номера (рядок таблиці з доважком).
   // employeeId null — будь-якого працівника.
-  findExisting(employeeId, number, { kind, orderId, source } = {}) {
-    const mine = this.data.orders.filter((x) => (employeeId == null || x.employeeId === employeeId) && (!source || x.source === source));
+  // index (orderIndex) — для багатьох пошуків поспіль: той самий результат без перебору всієї бази на кожен номер.
+  findExisting(employeeId, number, { kind, orderId, source, index } = {}) {
+    const fits = (x) => (employeeId == null || x.employeeId === employeeId) && (!source || x.source === source);
+    if (index && !orderId) {
+      if (!number) return null;
+      const exact = (index.exact.get(number) || []).find(fits);
+      if (exact) return exact;
+      let best = null; // найперше в базі замовлення з таким самим кодом усередині номера
+      for (const c of numberCodes(number)) for (const e of index.codes.get(c) || []) if (e.order.number !== number && fits(e.order) && (!best || e.pos < best.pos)) best = e;
+      return best ? best.order : null;
+    }
+    const mine = this.data.orders.filter(fits);
     if (orderId) {
       const byOrder = mine.find((x) => x.orderId === String(orderId) && (!kind || !x.kind || x.kind === kind));
       if (byOrder) return byOrder;
@@ -319,10 +332,21 @@ class Service {
     if (!number) return null;
     const exact = mine.find((x) => x.number === number);
     if (exact) return exact;
-    const codes = new Set([...(String(number).match(/\d{14}/g) || []), ...mp.parcelCodes(number)]);
+    const codes = new Set(numberCodes(number));
     if (!codes.size) return null;
-    return mine.find((x) => x.number !== number
-      && [...(x.number.match(/\d{14}/g) || []), ...mp.parcelCodes(x.number)].some((c) => codes.has(c))) || null;
+    return mine.find((x) => x.number !== number && numberCodes(x.number).some((c) => codes.has(c))) || null;
+  }
+
+  // Індекс замовлень за номером і за кодами всередині номера (у порядку бази) — для findExisting з index.
+  orderIndex() {
+    const exact = new Map(), codes = new Map();
+    const add = (map, key, value) => { const list = map.get(key); if (list) list.push(value); else map.set(key, [value]); };
+    this.data.orders.forEach((order, pos) => {
+      if (!order.number) return;
+      add(exact, order.number, order);
+      for (const c of new Set(numberCodes(order.number))) add(codes, c, { order, pos });
+    });
+    return { exact, codes };
   }
 
   // Підставити зведення в замовлення. withDate — також дату (з маркетплейсу або дата накладної).
@@ -485,7 +509,8 @@ class Service {
   // Попередній перегляд без запису й без запитів у мережу: що розпізнано в кожному рядку. Сума й статус — з того,
   // що програма вже знає про цей номер (тим самим пошуком, що й запис: ручний набір, інакше авто).
   previewPasted(input, employee) {
-    return this.pastedReport(this.parsePasted(input, employee), (it) => this.findExisting(it.employeeId, it.number, { source: 'manual' }) || this.findExisting(null, it.number, { source: 'auto' }));
+    const index = this.orderIndex(); // сотні рядків × тисячі замовлень: без індексу вікно завмирало б на секунди
+    return this.pastedReport(this.parsePasted(input, employee), (it) => this.findExisting(it.employeeId, it.number, { source: 'manual', index }) || this.findExisting(null, it.number, { source: 'auto', index }));
   }
 
   // Записати вставлене. Відповідь — та сама звірка, що й у перегляді, уже з результатом кожного рядка,

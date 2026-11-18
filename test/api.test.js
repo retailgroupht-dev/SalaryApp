@@ -402,3 +402,20 @@ test('API: вставка html-таблиці з буфера — поперед
     assert.strictEqual(r.status, 400);
   } finally { await t.cleanup(); }
 });
+
+test('findExisting з індексом дає те саме, що й перебір бази', async () => {
+  const t = await setup();
+  try {
+    const [a, b] = t.service.data.employees;
+    const mk = (employeeId, number, source) => t.service.data.orders.push(t.service.normalizeOrder({ id: t.service.store.nextId(), employeeId, number, source, amount: 1, status: 'ok', date: '2026-11-01' }));
+    mk(a.id, '20451520852070', 'auto'); mk(b.id, '20451520852070', 'manual'); mk(a.id, '20451520852070 723-1', 'manual');
+    mk(b.id, 'RMP-251639361 723-5205316', 'auto'); mk(a.id, 'RMP-251639361', 'manual'); mk(b.id, '723-5328470', 'manual');
+    mk(a.id, '201224462030 розетка', 'auto'); mk(b.id, 'prm-700000001', 'auto'); mk(a.id, 'PRM-700000001', 'auto');
+    const index = t.service.orderIndex();
+    const numbers = ['20451520852070', '20451520852070 723-1', 'RMP-251639361', 'RMP-251639361 723-5205316', 'rmp 251639361', '723-5328470', '201224462030', '201224462030 розетка', 'PRM-700000001', 'немає такого', ''];
+    for (const n of numbers) for (const emp of [null, a.id, b.id]) for (const source of [undefined, 'auto', 'manual']) {
+      const plain = t.service.findExisting(emp, n, { source }), fast = t.service.findExisting(emp, n, { source, index });
+      assert.strictEqual(fast && fast.id, plain && plain.id, `номер «${n}», працівник ${emp}, набір ${source}`);
+    }
+  } finally { await t.cleanup(); }
+});
