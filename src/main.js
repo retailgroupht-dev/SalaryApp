@@ -130,7 +130,8 @@ function registerIpc() {
 
   ipcMain.handle('np:track', (_e, numbers) => service.trackNumbers(numbers).then((r) => ({ results: [...r.results.values()], errors: r.errors })));
   ipcMain.handle('accounts:import', async (_e, p) => Object.assign(await service.importAccountsFromScript(p.text, p.employeeId), { settings: service.data.settings }));
-  ipcMain.handle('import:paste', async (_e, p) => Object.assign(await service.addPasted(p.text), { data: service.data }));
+  // p: {text, html, preview} — preview лише показує, що буде пораховано, нічого не записує
+  ipcMain.handle('import:paste', async (_e, p) => (p.preview ? service.previewPasted(p) : Object.assign(await service.addPasted(p), { data: service.data })));
   ipcMain.handle('shipments:collect', (_e, p) => service.collectShipments(p));
   ipcMain.handle('shipments:add', (_e, items) => Object.assign(service.addShipments(items), { data: service.data }));
   ipcMain.handle('sync:run', async () => Object.assign(await service.autoSync(), { data: service.data }));

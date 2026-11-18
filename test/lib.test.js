@@ -6,14 +6,14 @@ const lib = require('../src/lib');
 
 test('splitPasted: буфер Google Таблиць — клітинка з переносами в лапках, самотній \\r, лапка в тексті', () => {
   // живий вигляд (аркуш пакування, 2026-11-18): адреса замість ТТН на кілька рядків, \r у кінці назви товару
-  const text = 'аптечка\t"Ужгород\nНова пошта\nВідділення 1\n0503583070"\tТовкес\r\n'
+  const text = 'аптечка\t"Ужгород\nНова пошта\nВідділення 1\n0500000000"\tТовкес\r\n'
     + 'мультитул \r\t20451562644714\tНастя \n'
     + '"лупа ""велика""\n2шт"\tPRM-661772917\tНастя\n'
     + '"щітка" для бутлів\t20451520852070\n'
     + '\t\t\n'
     + 'останній\t723-5328470';
   assert.deepStrictEqual(lib.splitPasted(text), [
-    ['аптечка', 'Ужгород\nНова пошта\nВідділення 1\n0503583070', 'Товкес'],
+    ['аптечка', 'Ужгород\nНова пошта\nВідділення 1\n0500000000', 'Товкес'],
     ['мультитул \r', '20451562644714', 'Настя '],
     ['лупа "велика"\n2шт', 'PRM-661772917', 'Настя'],
     ['"щітка" для бутлів', '20451520852070'],
@@ -21,6 +21,27 @@ test('splitPasted: буфер Google Таблиць — клітинка з пе
     ['останній', '723-5328470'],
   ]);
   assert.deepStrictEqual(lib.splitPasted(''), [['']]);
+});
+
+test('htmlTable: живий буфер Google Таблиць (text/html) — клітинка = клітинка, <br> усередині клітинки', () => {
+  const fx = (name) => require('fs').readFileSync(require('path').join(__dirname, 'fixtures', name), 'utf8');
+  const grid = lib.htmlTable(fx('sheets-clipboard.html'));
+  assert.deepStrictEqual(grid.map((r) => r.length), [3, 3, 3, 3]);
+  assert.deepStrictEqual(grid[0], ['аптечка олива', '20451520852070', 'Товкес']);
+  assert.strictEqual(grid[2][1], 'Вітаю\nВідправте, будь ласка\nКиїв НП 1\nТОВ «Приклад» ЄДРПОУ: 00000000\nІваненко Іван\n0500000000\nОплата безготівкова\nпокладіть оригінали документів, будь ласка');
+  assert.deepStrictEqual(grid[3], ['самоклеючі шпалери ламелі сірі', '20451521500117', 'Настя']);
+  // text/plain того самого буфера дає ту саму сітку (усередині клітинки там \r\n, між рядками \n)
+  const fromText = lib.splitPasted(fx('sheets-clipboard.tsv')).map((r) => r.map((c) => c.replace(/\r/g, '').trim()));
+  assert.deepStrictEqual(fromText, grid);
+  // colspan/rowspan: значення у верхній лівій клітинці, колонки не зсуваються; сутності; th; атрибути без лапок (Excel)
+  assert.deepStrictEqual(lib.htmlTable('<html><body><!--StartFragment--><table border=0><col width=87><tr height=20><td colspan=2 rowspan="2" class=xl65>A &amp; B</td><td>c</td></tr><tr><td>d&nbsp;e<br>f</td></tr><tr><th>x</th><td></td><td>&#1040;&#x42f; &lt;b&gt;</td></tr></table><!--EndFragment--></body></html>'),
+    [['A & B', '', 'c'], ['', '', 'd e\nf'], ['x', '', 'АЯ <b>']]);
+  // «>» усередині значення атрибута тег не закриває (так виглядає клітинка з data-sheets-value у режимі редагування)
+  assert.deepStrictEqual(lib.htmlTable('<table><tr><td data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;набір >10шт&quot;}" style=\'x:"a>b"\'><span title="1>0">набір &gt;10шт</span></td><td>2045</td></tr></table>'), [['набір >10шт', '2045']]);
+  // одна клітинка приходить без <table>, порожній html — працює розбір тексту
+  assert.strictEqual(lib.htmlTable('<span data-sheets-value="{}">20451520852070</span>'), null);
+  assert.strictEqual(lib.htmlTable(''), null);
+  assert.strictEqual(lib.htmlTable('<table></table>'), null);
 });
 
 test('mergeOrders: дублікати за номером оновлюються, нові додаються', () => {

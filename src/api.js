@@ -16,7 +16,7 @@ const ROUTES_DOC = [
   ['GET', '/api/orders?employee=&period=&status=&q=&source=&format=', 'замовлення з фільтрами (employee — id або ім’я; source — auto|manual; format=xlsx|csv — файлом)'],
   ['POST', '/api/orders', 'об’єкт або масив {employee|employeeId, number, amount, product?, channel?, status?, date?, source?}; без id — злиття за номером у своєму наборі'],
   ['DELETE', '/api/orders/:id', 'видалити замовлення'],
-  ['POST', '/api/import/paste', '{text, employee?} — рядки «товар ⇥ ТТН», скопійовані з таблиці (можна й колонку з працівником); працівника визначає кабінет, що знайшов замовлення'],
+  ['POST', '/api/import/paste', '{text | html | rows, employee?, preview?} — рядки «товар, ТТН» з таблиці (можна й колонку з працівником); preview: true — лише показати звірку, без запису'],
   ['GET', '/api/shipments?employee=&period=YYYY-MM', 'замовлення з кабінетів маркетплейсів за місяць (без запису)'],
   ['POST', '/api/shipments/add', '{employee?, period} — зібрати з кабінетів і додати в замовлення'],
   ['POST', '/api/sync', 'автоматичне оновлення зараз: зібрати з кабінетів і перевірити за поточний і попередній місяць'],
@@ -104,7 +104,10 @@ function createApi(service, appInfo) {
       if (m === 'POST' && p === '/api/track') return send(res, 200, await service.addByTtn(json()));
       if (m === 'POST' && p === '/api/track/refresh') return send(res, 200, await service.refreshFromNp(json()));
       if (m === 'POST' && p === '/api/sync') return send(res, 200, await service.autoSync());
-      if (m === 'POST' && p === '/api/import/paste') { const b = json() || {}; return send(res, 200, await service.addPasted(b.text, b.employee != null ? b.employee : b.employeeId)); }
+      if (m === 'POST' && p === '/api/import/paste') {
+        const b = json() || {}, emp = b.employee != null ? b.employee : b.employeeId;
+        return send(res, 200, b.preview ? service.previewPasted(b, emp) : await service.addPasted(b, emp));
+      }
       if (m === 'GET' && p === '/api/shipments') return send(res, 200, await service.collectShipments({ employee: q.employee, period: q.period }));
       if (m === 'POST' && p === '/api/shipments/add') {
         const b = json() || {};

@@ -23,7 +23,8 @@ function statusDetail(track) {
   if (np && np.status) return `Нова Пошта: ${np.status}`;
   return '';
 }
-const statusCell = (status, track, note) => `<td class="status-cell" title="${esc(note || '')}"><span class="badge ${status}">${STATUS[status] || status}</span><div class="detail clip">${esc(statusDetail(track))}</div></td>`;
+const badge = (status) => `<span class="badge ${status}">${STATUS[status] || status}</span>`;
+const statusCell = (status, track, note) => `<td class="status-cell" title="${esc(note || '')}">${badge(status)}<div class="detail clip">${esc(statusDetail(track))}</div></td>`;
 let toastTimer = null;
 function toast(text) {
   const el = $('#toast'); el.textContent = text; el.classList.remove('hidden');
@@ -372,35 +373,68 @@ function bind() {
     } catch (e) { info.textContent = 'Помилка: ' + errMsg(e); }
   });
 
-  // Вставка з таблиці
+  // Вставка з таблиці: спершу попередній перегляд сіткою (нічого не записується), запис — лише за «Порахувати».
+  // З буфера береться text/html (таблиця Google Таблиць чи Excel: клітинка = клітинка), текст — запасний варіант.
   const pasteStatus = (msg, cls) => { const el = $('#pasteStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
-  $('#pasteBtn').addEventListener('click', async () => {
-    const text = $('#pasteText').value;
-    if (!text.trim()) return pasteStatus('Вставте рядки з таблиці', 'err');
-    pasteStatus('Шукаю в Новій Пошті та на маркетплейсах…'); $('#pasteBtn').disabled = true;
-    $('#pasteReport').classList.add('hidden'); // звірка попередньої вставки не має висіти під новою
+  let pasteHtml = ''; // таблиця з останньої вставки; будь-яка правка поля руками її скидає і закриває перегляд
+  const pastePayload = () => ({ text: $('#pasteText').value, html: pasteHtml });
+  const PASTE_STATE = { ok: 'буде пораховано', added: 'додано', updated: 'оновлено', unchanged: 'без змін' };
+  const colName = (i) => (i < 26 ? '' : String.fromCharCode(64 + Math.floor(i / 26))) + String.fromCharCode(65 + (i % 26));
+  const renderPasteGrid = (r, done) => {
+    const cols = Math.max(1, ...r.rows.map((x) => x.cells.length));
+    $('#pasteGrid thead').innerHTML = `<tr><th class="num">№</th>${Array.from({ length: cols }, (_, i) => `<th>${colName(i)}</th>`).join('')}<th class="calc">Номер ТТН</th><th class="calc">Працівник</th><th class="calc num">Сума</th><th class="calc">Стан</th></tr>`;
+    $('#pasteGrid tbody').innerHTML = r.rows.map((x) => {
+      const bad = x.state === 'skip';
+      const who = x.employee ? esc(x.employee) + (x.employeeGuess ? ' <span class="muted" title="Так записано в базі; остаточно визначить кабінет">(з бази)</span>' : '')
+        : (bad ? '' : '<span class="muted">визначить кабінет</span>');
+      const status = x.status ? ' · ' + badge(x.status) : '';
+      return `<tr class="${bad ? 'bad' : ''}"><td class="num">${x.row}</td>${Array.from({ length: cols }, (_, i) => `<td class="cell" title="${esc(x.cells[i] || '')}">${esc(x.cells[i] || '')}</td>`).join('')}
+        <td class="calc nowrap">${esc(x.number)}</td><td class="calc">${who}</td><td class="calc num">${x.amount == null ? '—' : fmt(x.amount)}</td>
+        <td class="calc">${bad ? esc(x.reason) : PASTE_STATE[x.state] + status}</td></tr>`;
+    }).join('');
+    const counted = done ? `пораховано ${r.counted} (додано ${r.added}, оновлено ${r.updated}, без змін ${r.unchanged})` : `буде пораховано ${r.counted}`;
+    $('#pasteTotals').textContent = `Вставлено ${r.total} · ${counted} · не пораховано ${r.total - r.counted}`;
+    $('#pasteOnlyBad').checked = false; $('#pasteOnlyBad').parentElement.classList.toggle('hidden', r.total === r.counted);
+    $('#pastePreview .sheet').classList.remove('only-bad');
+    $('#pasteCount').classList.toggle('hidden', done || !r.counted);
+    $('#pasteCancel').textContent = done ? 'Закрити' : 'Скасувати';
+    $('#pastePreview').classList.remove('hidden');
+  };
+  const closePastePreview = () => $('#pastePreview').classList.add('hidden');
+  const previewPaste = async () => {
+    if (!$('#pasteText').value.trim() && !pasteHtml) return pasteStatus('Вставте клітинки з таблиці', 'err');
+    closePastePreview();
     try {
-      const r = await window.api.importPaste({ text });
-      // Звірка: скільки рядків вставлено → скільки пораховано → куди поділася решта (кожен рядок із причиною).
-      const parts = [`Вставлено рядків: ${r.total}. Пораховано: ${r.counted} (додано ${r.added}, оновлено ${r.updated}, без змін ${r.unchanged}).`];
-      if (r.skipped.length) {
-        const by = {};
-        for (const x of r.skipped) by[x.reason] = (by[x.reason] || 0) + 1;
-        parts.push(`Не пораховано: ${r.skipped.length} — ${Object.entries(by).map(([k, n]) => `${k}: ${n}`).join('; ')}.`);
-      }
+      renderPasteGrid(await window.api.importPaste(Object.assign({ preview: true }, pastePayload())), false);
+      pasteStatus('Перевірте, що розпізнано. Червоні рядки не порахуються. У базу нічого не записано, доки не натиснете «Порахувати».');
+    } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
+  };
+  $('#pasteText').addEventListener('paste', (e) => {
+    const html = e.clipboardData.getData('text/html');
+    pasteHtml = /<table\b/i.test(html) ? html : '';
+    if (pasteHtml) { e.preventDefault(); $('#pasteText').value = e.clipboardData.getData('text/plain'); } // вставлене замінює поле: перегляд показує саме цю таблицю
+    setTimeout(previewPaste, 0);
+  });
+  $('#pasteText').addEventListener('input', () => { pasteHtml = ''; closePastePreview(); }); // текст правили руками — таблиця з буфера вже не про нього
+  $('#pasteBtn').addEventListener('click', previewPaste);
+  $('#pasteOnlyBad').addEventListener('change', (e) => $('#pastePreview .sheet').classList.toggle('only-bad', e.target.checked));
+  const pasteBusy = (on) => { for (const id of ['#pasteCount', '#pasteText', '#pasteBtn', '#pasteCancel']) $(id).disabled = on; }; // під час підрахунку нова вставка неможлива
+  $('#pasteCancel').addEventListener('click', () => { closePastePreview(); pasteStatus(''); });
+  $('#pasteCount').addEventListener('click', async () => {
+    pasteStatus('Шукаю в Новій Пошті та на маркетплейсах… (для сотень рядків — кілька хвилин)'); pasteBusy(true);
+    try {
+      const r = await window.api.importPaste(pastePayload());
+      renderPasteGrid(r, true);
+      const parts = ['Готово.'];
       if (r.notFound.length) parts.push(`Не знайдено ніде (лишились як «Немає даних»): ${r.notFound.length} — ${r.notFound.slice(0, 20).join(', ')}${r.notFound.length > 20 ? '…' : ''}.`);
       if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
       pasteStatus(parts.join(' '), r.counted ? 'ok' : 'err');
-      const rep = $('#pasteReport');
-      rep.classList.toggle('hidden', !r.skipped.length);
-      rep.open = r.skipped.length <= 15;
-      $('#pasteReportTitle').textContent = `Непораховані рядки: ${r.skipped.length} з ${r.total}`;
-      $('#pasteReportBody').innerHTML = r.skipped.map((x) => `<tr><td class="num">${x.row}</td><td>${esc(x.line)}</td><td>${esc(x.reason)}</td></tr>`).join('');
+      pasteHtml = '';
       if (r.counted) $('#pasteText').value = '';
       reload(r.data);
     } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
-    finally { $('#pasteBtn').disabled = false; }
+    finally { pasteBusy(false); }
   });
 
   // Відправлення

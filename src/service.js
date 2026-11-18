@@ -364,15 +364,17 @@ class Service {
     const emp = ref != null && ref !== '' ? this.requireEmployee(ref) : null;
     source = source === 'auto' ? 'auto' : 'manual';
     const { results, errors } = await this.trackNumbers(numbers);
-    const res = { added: 0, updated: 0, unchanged: 0, notFound: [], noAmount: [], noEmployee: [], errors, orders: [] };
+    // outcomes: номер → {outcome: added|updated|unchanged|noEmployee|notFound, id?} — що сталося з кожним номером
+    const res = { added: 0, updated: 0, unchanged: 0, notFound: [], noAmount: [], noEmployee: [], errors, orders: [], outcomes: {} };
     for (const [number, t] of results) {
       const ownerId = emp ? emp.id : this.ownerOf(number, t, source);
-      if (ownerId == null) { res.noEmployee.push(number); continue; }
+      if (ownerId == null) { res.noEmployee.push(number); res.outcomes[number] = { outcome: 'noEmployee' }; continue; }
       if (!t.found) { res.notFound.push(number); }
       let o = this.findExisting(ownerId, number, { source, kind: t.mp && t.mp.kind, orderId: t.mp && t.mp.orderId });
-      if (o) { if (this.applyTracking(o, t)) res.updated++; else res.unchanged++; }
+      let outcome = 'added';
+      if (o) { outcome = this.applyTracking(o, t) ? 'updated' : 'unchanged'; res[outcome]++; }
       else {
-        if (!t.found && source !== 'manual') continue; // рядок таблиці лишається й без даних (як «НЕТ ДАННЫХ» у таблиці)
+        if (!t.found && source !== 'manual') { res.outcomes[number] = { outcome: 'notFound' }; continue; } // рядок таблиці лишається й без даних (як «НЕТ ДАННЫХ» у таблиці)
         o = this.normalizeOrder({ employeeId: ownerId, number, source, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
         o.id = this.store.nextId();
         this.applyTracking(o, t);
@@ -381,6 +383,7 @@ class Service {
       }
       if (t.found && t.amount == null) res.noAmount.push(number);
       res.orders.push(o);
+      res.outcomes[number] = { outcome, id: o.id };
     }
     this.store.save();
     return res;
@@ -413,20 +416,26 @@ class Service {
   }
 
   // ---------- вставка з таблиці ----------
-  // Текст, скопійований із колонок Google Таблиці (товар, ТТН/номер і, необов’язково, працівник) у будь-якому
-  // порядку: колонки розділені табуляцією. Повертає {rows: [{product, number, employeeId|null, employee}], unknown: [...]}.
-  // Рядки без імені (employeeId null) отримують працівника від кабінету, який знайде замовлення (addByTtn);
-  // employee — працівник для таких рядків, якщо його все ж вказали.
-  parsePasted(text, employee) {
-    const rows = [], skipped = [];
+  // Вставлене → сітка клітинок. input: текст або {rows | html | text}: готові рядки клітинок; html-таблиця з буфера
+  // (Google Таблиці, Excel: клітинка = клітинка); інакше текст із табуляціями (lib.splitPasted).
+  pastedGrid(input) {
+    const p = typeof input === 'string' ? { text: input } : (input || {});
+    if (Array.isArray(p.rows)) return p.rows.map((r) => (Array.isArray(r) ? r : [r]).map((c) => String(c == null ? '' : c)));
+    return lib.htmlTable(p.html) || lib.splitPasted(p.text);
+  }
+
+  // Рядки вставленого (товар, ТТН/номер і, необов’язково, працівник — колонки в будь-якому порядку) →
+  // [{row, cells, line, number, product, employeeId|null, employee, reason}]. reason (SKIP) стоїть
+  // у рядків, які не порахуються: без номера або з повтором номера (той самий працівник чи рядок без імені). Рядки без імені
+  // (employeeId null) отримують працівника від кабінету, який знайде замовлення (addByTtn); employee — працівник
+  // для таких рядків, якщо його все ж вказали. Порожній рядок не рахується, але номер рядка займає.
+  parsePasted(input, employee) {
     const fallback = employee != null && employee !== '' ? this.requireEmployee(employee) : null;
-    const table = lib.splitPasted(text);
-    let total = 0;
-    table.forEach((raw, idx) => {
+    const items = [], seen = new Map(); // номер → працівники, у чиїх рядках він уже був
+    this.pastedGrid(input).forEach((raw, idx) => {
       const cells = raw.map((c) => c.replace(/\s+/g, ' ').trim());
-      if (!cells.some(Boolean)) return; // порожній рядок виділення: не рахується, але номер рядка займає
-      total++;
-      const line = cells.filter(Boolean).join(' | ');
+      if (!cells.some(Boolean)) return;
+      const shown = raw.map((c) => c.replace(/\r/g, '').trim()); // для сітки у вікні: клітинка як у таблиці, з переносами
       let number = '', emp = null;
       const rest = [];
       for (const c of cells) {
@@ -445,37 +454,64 @@ class Service {
         }
       }
       if (!emp) emp = fallback;
-      if (!number) { skipped.push({ row: idx + 1, line, reason: SKIP.noNumber }); return; }
-      rows.push({ row: idx + 1, line, product: rest.join(' '), number, employeeId: emp ? emp.id : null, employee: emp ? emp.name : '' });
+      const it = { row: idx + 1, cells: shown, line: cells.filter(Boolean).join(' | '), number, product: rest.join(' '), employeeId: emp ? emp.id : null, employee: emp ? emp.name : '', reason: '' };
+      // повтор: той самий номер у того самого працівника або в рядку без імені (він однаково піде до власника посилки)
+      const owners = seen.get(number);
+      if (!number) it.reason = SKIP.noNumber;
+      else if (owners && (owners.has(it.employeeId) || it.employeeId == null || owners.has(null))) it.reason = SKIP.duplicate;
+      else seen.set(number, (owners || new Set()).add(it.employeeId));
+      items.push(it);
     });
-    return { rows, skipped, total };
+    return items;
   }
 
-  // Відповідь — звірка: total (рядків у вставленому) = counted (added + updated + unchanged) + skipped.length,
-  // skipped: [{row, line, reason, number?}] — кожен непорахований рядок із причиною (SKIP).
-  // Рівність тримається на тому, що addByTtn кожен номер відносить рівно в одне з: added, updated, unchanged, noEmployee.
-  async addPasted(text, employee) {
-    const { rows, skipped, total } = this.parsePasted(text, employee);
-    if (!total) throw new ApiError(400, 'Порожній текст');
-    const res = { total, counted: 0, added: 0, updated: 0, unchanged: 0, notFound: [], noAmount: [], errors: [], skipped };
-    const groups = new Map(); // працівник → Map(номер → рядок); повтор номера в межах працівника не рахується двічі
-    for (const r of rows) {
-      if (!groups.has(r.employeeId)) groups.set(r.employeeId, new Map());
-      const mine = groups.get(r.employeeId);
-      if (mine.has(r.number)) skipped.push({ row: r.row, line: r.line, number: r.number, reason: SKIP.duplicate });
-      else mine.set(r.number, r);
+  // Звірка для відповіді: total = counted + skipped.length; rows — сітка для вікна (рядок як у вставленому плюс
+  // номер, працівник, сума, статус і стан: ok — буде пораховано, added / updated / unchanged, skip — ні). Лічильники
+  // рахуються з цих самих рядків. orderOf(рядок) — замовлення, з якого взяти суму, статус і працівника.
+  pastedReport(items, orderOf) {
+    if (!items.length) throw new ApiError(400, 'Порожній текст');
+    const rows = items.map((it) => {
+      const o = it.reason ? null : orderOf(it);
+      const owner = it.employee || (o && (this.resolveEmployee(o.employeeId) || {}).name) || '';
+      // працівник рядка без імені до запису — лише припущення з бази: остаточно його визначить кабінет
+      return { row: it.row, cells: it.cells, number: it.number, state: it.reason ? 'skip' : it.outcome || 'ok', reason: it.reason,
+        employee: owner, employeeGuess: !it.employee && !it.outcome && !!owner, amount: o ? o.amount : null, status: o ? o.status : '' };
+    });
+    const count = (state) => rows.filter((r) => r.state === state).length;
+    const skipped = items.filter((it) => it.reason).map((it) => Object.assign({ row: it.row, line: it.line, reason: it.reason }, it.number ? { number: it.number } : {}));
+    return { total: rows.length, counted: rows.length - skipped.length, added: count('added'), updated: count('updated'), unchanged: count('unchanged'), skipped, rows };
+  }
+
+  // Попередній перегляд без запису й без запитів у мережу: що розпізнано в кожному рядку. Сума й статус — з того,
+  // що програма вже знає про цей номер (тим самим пошуком, що й запис: ручний набір, інакше авто).
+  previewPasted(input, employee) {
+    return this.pastedReport(this.parsePasted(input, employee), (it) => this.findExisting(it.employeeId, it.number, { source: 'manual' }) || this.findExisting(null, it.number, { source: 'auto' }));
+  }
+
+  // Записати вставлене. Відповідь — та сама звірка, що й у перегляді, уже з результатом кожного рядка,
+  // плюс notFound, noAmount, errors.
+  async addPasted(input, employee) {
+    const items = this.parsePasted(input, employee);
+    const res = { notFound: [], noAmount: [], errors: [] };
+    const groups = new Map(); // працівник (або null) → рядки, які рахуються
+    for (const it of items) {
+      if (it.reason) continue;
+      if (!groups.has(it.employeeId)) groups.set(it.employeeId, []);
+      groups.get(it.employeeId).push(it);
     }
     for (const [empId, mine] of groups) {
       const products = {};
-      for (const r of mine.values()) if (r.product) products[r.number] = r.product;
-      const r = await this.addByTtn({ employeeId: empId, numbers: [...mine.keys()], products });
-      res.added += r.added; res.updated += r.updated; res.unchanged += r.unchanged;
+      for (const it of mine) if (it.product) products[it.number] = it.product;
+      const r = await this.addByTtn({ employeeId: empId, numbers: mine.map((it) => it.number), products });
       res.notFound.push(...r.notFound); res.noAmount.push(...r.noAmount); res.errors.push(...r.errors);
-      for (const n of r.noEmployee) { const x = mine.get(n); skipped.push({ row: x.row, line: x.line, number: n, reason: SKIP.noEmployee }); }
+      const byId = new Map(r.orders.map((o) => [o.id, o]));
+      for (const it of mine) {
+        const oc = r.outcomes[it.number] || {};
+        it.order = byId.get(oc.id);
+        if (it.order) it.outcome = oc.outcome; else it.reason = SKIP.noEmployee; // власника не визначив жоден кабінет
+      }
     }
-    res.counted = res.added + res.updated + res.unchanged;
-    skipped.sort((a, b) => a.row - b.row);
-    return res;
+    return Object.assign(res, this.pastedReport(items, (it) => it.order));
   }
 
   // ---------- відправлення з кабінетів ----------

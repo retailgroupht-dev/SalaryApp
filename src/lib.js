@@ -37,6 +37,45 @@ function splitPasted(text) {
   return rows; // порожні рядки лишаються: за ними рахується номер рядка у виділенні
 }
 
+// Таблиця з text/html буфера (Google Таблиці, Excel) → рядки клітинок: клітинка = клітинка, <br> усередині —
+// перенос у тій самій клітинці. Живий вигляд Google Таблиць (2026-11-18): <google-sheets-html-origin><style>…
+// <table …><colgroup>…<tbody><tr><td style="…">перший\r<br/>другий</td>…; одна скопійована клітинка приходить
+// без <table> — тоді null, і працює розбір тексту. colspan/rowspan: значення у верхній лівій клітинці, решта порожні.
+const HTML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+// Атрибути тегу: «>» усередині значення в лапках тег не закриває (Google Таблиці кладуть текст клітинки в data-sheets-value).
+const ATTRS = '(?:[^>"\']|"[^"]*"|\'[^\']*\')*';
+const BR_RE = new RegExp('<br\\b' + ATTRS + '>', 'gi'), TAG_RE = new RegExp('<[a-z/!?]' + ATTRS + '>', 'gi');
+const TR_RE = new RegExp('<tr\\b' + ATTRS + '>([\\s\\S]*?)</tr>', 'gi'), TD_RE = new RegExp('<(td|th)\\b(' + ATTRS + ')>([\\s\\S]*?)</\\1>', 'gi');
+function htmlCellText(html) {
+  return html.replace(/<!--[\s\S]*?-->/g, '').replace(/[\r\n\t ]+/g, ' ').replace(BR_RE, '\n').replace(TAG_RE, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+      if (e[0] !== '#') { const v = HTML_ENTITIES[e.toLowerCase()]; return v == null ? m : v; }
+      const code = e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : Number(e.slice(1));
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+    })
+    .split('\n').map((l) => l.trim()).join('\n').trim();
+}
+function htmlTable(html) {
+  const table = /<table\b[\s\S]*<\/table>/i.exec(String(html || ''));
+  if (!table) return null;
+  const span = (attrs, name) => Math.min(Number((new RegExp(name + '\\s*=\\s*["\']?(\\d+)', 'i').exec(attrs) || [])[1]) || 1, 500);
+  const grid = [];
+  const taken = new Set(); // «рядок:колонка», зайняті клітинкою з rowspan/colspan вище або лівіше
+  for (const tr of table[0].matchAll(TR_RE)) {
+    const r = grid.length, row = [];
+    let c = 0;
+    for (const td of tr[1].matchAll(TD_RE)) {
+      while (taken.has(r + ':' + c)) c++;
+      const cs = span(td[2], 'colspan'), rs = span(td[2], 'rowspan');
+      row[c] = htmlCellText(td[3]);
+      for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) if (i || j) taken.add((r + i) + ':' + (c + j));
+      c += cs;
+    }
+    grid.push(Array.from(row, (v) => v || ''));
+  }
+  return grid.length ? grid : null;
+}
+
 // ---------- CSV ----------
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
@@ -239,6 +278,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, statusDetail, splitPasted, toCsv, mergeOrders,
+  SOURCE, statusDetail, splitPasted, htmlTable, toCsv, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };

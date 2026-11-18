@@ -73,14 +73,19 @@
       <div class="panel manual-only">
         <h2>Вставити з таблиці</h2>
         <div class="row">
-          <label class="grow">Скопіюйте в таблиці колонки товар і ТТН (можна ще продажника — тоді він перебиває кабінет); порядок колонок неважливий, клітинки з кількома рядками тексту читаються як одна <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
-          <button id="pasteBtn">Додати й перевірити</button>
+          <label class="grow">Скопіюйте в таблиці клітинки з товаром і ТТН (можна ще продажника — тоді він перебиває кабінет), клацніть у це поле й вставте. Порядок колонок неважливий; клітинка лишається клітинкою, навіть якщо в ній кілька рядків тексту <textarea id="pasteText" rows="3" placeholder="щітка для бутлів&#9;20451520852070&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
+          <button id="pasteBtn" class="secondary" title="Якщо рядки набрано руками, а не вставлено">Переглянути</button>
         </div>
         <div id="pasteStatus" class="status"></div>
-        <details id="pasteReport" class="report hidden">
-          <summary id="pasteReportTitle">Непораховані рядки</summary>
-          <table class="grid"><thead><tr><th class="num">Рядок</th><th>Що в рядку</th><th>Чому не пораховано</th></tr></thead><tbody id="pasteReportBody"></tbody></table>
-        </details>
+        <div id="pastePreview" class="hidden">
+          <div class="sheet"><table id="pasteGrid"><thead></thead><tbody></tbody></table></div>
+          <div class="sheet-foot">
+            <span id="pasteTotals"></span>
+            <label class="check"><input id="pasteOnlyBad" type="checkbox"> лише непораховані</label>
+            <button id="pasteCount">Порахувати</button>
+            <button id="pasteCancel" class="secondary">Скасувати</button>
+          </div>
+        </div>
       </div>
       <div class="toolbar filters">
         <label>Працівник <select id="fEmployee"><option value="">Усі</option></select></label>

@@ -37,9 +37,10 @@
   `employeeId` null = спільний, інакше замовлення працівника шукаються лише його кабінетами + спільними.
   Вкладка «Відправлення» (`collectShipments`): усі замовлення кабінетів за місяць (`marketplaces.listOrders`:
   Prom date_from/to, Rozetka created_from/to, Епіцентр курсор до дати) + звірка з НП, кнопка додає в замовлення.
-  Вставка з таблиці (`addPasted`): колонки товар/ТТН/працівник у будь-якому порядку; текст ріже `lib.splitPasted`
-  (клітинка з переносами в буфері Google Таблиць — у лапках, це одна клітинка); відповідь — звірка
-  `total = counted + skipped.length`, у вікні — таблиця непорахованих рядків із причиною.
+  Вставка з таблиці: з буфера береться `text/html` (`lib.htmlTable`: клітинка = клітинка, живий формат Google Таблиць —
+  у `test/fixtures/sheets-clipboard.*`), інакше текст (`lib.splitPasted`: клітинка з переносами — у лапках). Спершу
+  `previewPasted` (без запису й мережі) — сітка у вікні з колонками «Номер ТТН / Працівник / Сума / Стан», червоні рядки
+  не порахуються; запис — `addPasted` лише за кнопкою «Порахувати». Звірка в обох: `total = counted + skipped.length`.
   Автооновлення (`autoSync`, `settings.auto {enabled, hours}`): через 20 с після старту й кожні N годин — збір
   з кабінетів за поточний і попередній місяць + перевірка «Перевіряється»; у smoke-режимі не запускається.
 - `src/store.js` — усі дані в одному `data.json` у теці користувача
@@ -62,7 +63,7 @@
 `DELETE /api/orders/:id`,
 `GET /api/track?numbers=` (подивитися), `POST /api/track` (`{numbers, employee?}` — додати за номером),
 `POST /api/track/refresh` (`{ids}` або фільтри, `withDate`) — перевірити наявні,
-`POST /api/import/paste` (`{text}`), `GET /api/shipments?employee=&period=`, `POST /api/shipments/add`, `POST /api/sync`,
+`POST /api/import/paste` (`{html | text | rows, preview?}`), `GET /api/shipments?employee=&period=`, `POST /api/shipments/add`, `POST /api/sync`,
 `POST /api/settings/accounts/import` (`{script}`), `GET /api/settings/accounts/test`,
 `GET /api/export?format=xlsx|csv&period=`, `GET|PUT /api/data` (резервна копія),
 `GET|PUT /api/settings`, `GET /api/docs`. `employee` приймає id або ім’я. Тести API — `test/api.test.js`.

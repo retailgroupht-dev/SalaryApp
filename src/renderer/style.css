@@ -48,10 +48,19 @@ button:disabled { opacity: .5; cursor: default; }
 .status { margin-top: 8px; min-height: 18px; color: var(--muted); }
 .status.ok { color: var(--ok); }
 .status.err { color: var(--danger); }
-.report { margin-top: 8px; }
-.report summary { cursor: pointer; color: var(--muted); }
-.report table.grid { margin-top: 6px; min-width: 0; }
-.report td { font-size: 12px; white-space: normal; word-break: break-word; }
+.sheet { margin-top: 8px; max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.sheet table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.sheet th, .sheet td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+.sheet th { position: sticky; top: 0; background: #eef1f5; font-weight: 600; z-index: 1; }
+.sheet td.cell { max-width: 280px; white-space: pre-line; word-break: break-word; }
+.sheet .calc { background: #f6f8fb; }
+.sheet th.calc { background: #e3e9f2; }
+.sheet .num { text-align: right; font-variant-numeric: tabular-nums; }
+.sheet td.nowrap { white-space: nowrap; }
+.sheet tr.bad td { background: #fee2e2; color: var(--danger); }
+.sheet.only-bad tbody tr:not(.bad) { display: none; }
+.sheet-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.sheet-foot span { flex: 1; font-weight: 600; }
 
 table.grid { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .grid th, .grid td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
