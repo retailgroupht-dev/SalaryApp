@@ -326,13 +326,14 @@ function bind() {
     $('#ttnAddBtn').disabled = true;
     try {
       const r = await window.api.npAdd({ numbers });
-      const parts = [`Додано: ${r.added}, оновлено: ${r.updated}.`];
+      const counted = r.added + r.updated + r.unchanged;
+      const parts = [`Додано: ${r.added}, оновлено: ${r.updated}, без змін: ${r.unchanged}.`];
       if (r.noEmployee.length) parts.push(`Не додано — не знайдено в кабінетах працівників (чиє це?): ${r.noEmployee.join(', ')}.`);
       if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
       if (r.noAmount.length) parts.push(`Без суми (вкажіть вручну): ${r.noAmount.length}.`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
-      ttnStatus(parts.join(' '), r.added + r.updated ? 'ok' : 'err');
-      if (r.added + r.updated) $('#ttnNumbers').value = '';
+      ttnStatus(parts.join(' '), counted ? 'ok' : 'err');
+      if (counted) $('#ttnNumbers').value = '';
       reload(r.data);
     } catch (e) { ttnStatus('Помилка: ' + errMsg(e), 'err'); }
     finally { $('#ttnAddBtn').disabled = false; }
@@ -377,16 +378,26 @@ function bind() {
     const text = $('#pasteText').value;
     if (!text.trim()) return pasteStatus('Вставте рядки з таблиці', 'err');
     pasteStatus('Шукаю в Новій Пошті та на маркетплейсах…'); $('#pasteBtn').disabled = true;
+    $('#pasteReport').classList.add('hidden'); // звірка попередньої вставки не має висіти під новою
     try {
       const r = await window.api.importPaste({ text });
-      const parts = [`Рядків: ${r.parsed}. Додано: ${r.added}, оновлено: ${r.updated}.`];
-      if (r.noEmployee.length) parts.push(`Не додано — не знайдено в кабінетах працівників (чиє це?): ${r.noEmployee.join(', ')}.`);
-      if (r.notFound.length) parts.push(`Не знайдено ніде: ${r.notFound.join(', ')}.`);
+      // Звірка: скільки рядків вставлено → скільки пораховано → куди поділася решта (кожен рядок із причиною).
+      const parts = [`Вставлено рядків: ${r.total}. Пораховано: ${r.counted} (додано ${r.added}, оновлено ${r.updated}, без змін ${r.unchanged}).`];
+      if (r.skipped.length) {
+        const by = {};
+        for (const x of r.skipped) by[x.reason] = (by[x.reason] || 0) + 1;
+        parts.push(`Не пораховано: ${r.skipped.length} — ${Object.entries(by).map(([k, n]) => `${k}: ${n}`).join('; ')}.`);
+      }
+      if (r.notFound.length) parts.push(`Не знайдено ніде (лишились як «Немає даних»): ${r.notFound.length} — ${r.notFound.slice(0, 20).join(', ')}${r.notFound.length > 20 ? '…' : ''}.`);
       if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);
-      if (r.unknown.length) parts.push(`Пропущено рядків: ${r.unknown.length} (${r.unknown.slice(0, 3).map((u) => `«${u.line.slice(0, 70)}» — ${u.reason}`).join('; ')}${r.unknown.length > 3 ? '…' : ''}).`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
-      pasteStatus(parts.join(' '), r.added + r.updated ? 'ok' : 'err');
-      if (r.added + r.updated) $('#pasteText').value = '';
+      pasteStatus(parts.join(' '), r.counted ? 'ok' : 'err');
+      const rep = $('#pasteReport');
+      rep.classList.toggle('hidden', !r.skipped.length);
+      rep.open = r.skipped.length <= 15;
+      $('#pasteReportTitle').textContent = `Непораховані рядки: ${r.skipped.length} з ${r.total}`;
+      $('#pasteReportBody').innerHTML = r.skipped.map((x) => `<tr><td class="num">${x.row}</td><td>${esc(x.line)}</td><td>${esc(x.reason)}</td></tr>`).join('');
+      if (r.counted) $('#pasteText').value = '';
       reload(r.data);
     } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
     finally { $('#pasteBtn').disabled = false; }

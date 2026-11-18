@@ -78,6 +78,16 @@ function rozetkaDeliveryId(text) {
   return digits ? digits[1] : '';
 }
 
+// Клітинка таблиці, яка вся є номером відправлення: число 6–20 цифр (ТТН НП — 14), номер виду 723-5328470
+// (так його пишуть кабінети), код посилки з літерами (PRM-…, RMP-…), 12 цифр Rozetka Delivery з приписаним
+// словом («201224462030 розетка»). Повертає номер у тому вигляді, в якому його шукати, або ''.
+function numberCell(text) {
+  const c = String(text || '').replace(/\s+/g, ' ').trim();
+  if (/^\d{6,20}$/.test(c) || /^[1-9]\d{2}-\d{6,8}$/.test(c)) return c; // 067-1234567 — телефон, не номер
+  if (/^[A-Z]{2,4}[-\s]?\d{6,}$/i.test(c)) return parcelCodes(c)[0] || '';
+  return /^\d{12}\D/.test(c) && !c.startsWith('380') ? rozetkaDeliveryId(c) : ''; // 380… з іменем — телефон
+}
+
 // Скасування / повернення / відмова за текстом статусу (укр/рос/англ) — як у скрипті.
 function problemByText(statusText) {
   const t = String(statusText || '').toLowerCase();
@@ -458,5 +468,5 @@ function parseScriptAccounts(text) {
 
 module.exports = {
   KINDS, MP_ORDER, PROBLEM_PRIORITY, CHANNELS, findOrders, listOrders, rozetkaDelivery, testAccount, parseScriptAccounts,
-  lookupKeys, searchCandidates, parcelCodes, rozetkaDeliveryId, problemByText, parseMoney, normalizeKey, dateOf, shiftDays,
+  lookupKeys, searchCandidates, parcelCodes, rozetkaDeliveryId, numberCell, problemByText, parseMoney, normalizeKey, dateOf, shiftDays,
 };

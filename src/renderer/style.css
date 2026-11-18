@@ -48,6 +48,10 @@ button:disabled { opacity: .5; cursor: default; }
 .status { margin-top: 8px; min-height: 18px; color: var(--muted); }
 .status.ok { color: var(--ok); }
 .status.err { color: var(--danger); }
+.report { margin-top: 8px; }
+.report summary { cursor: pointer; color: var(--muted); }
+.report table.grid { margin-top: 6px; min-width: 0; }
+.report td { font-size: 12px; white-space: normal; word-break: break-word; }
 
 table.grid { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .grid th, .grid td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }

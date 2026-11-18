@@ -16,6 +16,27 @@ const STATUS = {
 // Працівники зі списку-валідації у стовпці B поточних таблиць.
 const DEFAULT_EMPLOYEES = ['Горбенко', 'Левченко', 'Товкес', 'Гаєвська', 'Настя', 'Корнійчук'];
 
+// ---------- Вставлений з таблиці текст ----------
+// Текст із буфера Google Таблиць → рядки клітинок: колонки розділені табуляцією, рядки — переносом.
+// Клітинку з переносом усередині таблиця кладе в лапках ("перший рядок⏎другий", лапка всередині подвоєна) —
+// це одна клітинка, а не кілька рядків (перевірено на живому аркуші 2026-11-18). Лапка, яка не закривається
+// перед табуляцією чи кінцем рядка, — звичайний символ у тексті товару.
+function splitPasted(text) {
+  const src = String(text || '').replace(/^\uFEFF/, '');
+  // одна клітинка: або "…" у лапках, або текст до табуляції / кінця рядка; самотній \r (без \n) рядка не рве
+  const cellRe = /(?:"((?:[^"]|"")*)"|((?:[^\t\n\r]|\r(?!\n))*))(\t|\r?\n|$)/y;
+  const rows = [];
+  let row = [];
+  for (;;) {
+    const m = cellRe.exec(src);
+    row.push(m[1] != null ? m[1].replace(/""/g, '"') : m[2]);
+    if (m[3] === '\t') continue;
+    rows.push(row); row = [];
+    if (m[3] === '') break;
+  }
+  return rows; // порожні рядки лишаються: за ними рахується номер рядка у виділенні
+}
+
 // ---------- CSV ----------
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
@@ -218,6 +239,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, statusDetail, toCsv, mergeOrders,
+  SOURCE, statusDetail, splitPasted, toCsv, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };

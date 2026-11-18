@@ -17,6 +17,9 @@ class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+// Чому рядок вставленого з таблиці не пораховано (addPasted → skipped[].reason).
+const SKIP = { noNumber: 'немає номера ТТН', duplicate: 'повтор номера у вставленому', noEmployee: 'не знайдено в кабінетах працівників' };
+
 class Service {
   // opts.fetch — підміна fetch для Нової Пошти в тестах.
   constructor(store, opts = {}) { this.store = store; this.fetch = opts.fetch || null; this.migrateNumbers(); }
@@ -361,13 +364,13 @@ class Service {
     const emp = ref != null && ref !== '' ? this.requireEmployee(ref) : null;
     source = source === 'auto' ? 'auto' : 'manual';
     const { results, errors } = await this.trackNumbers(numbers);
-    const res = { added: 0, updated: 0, notFound: [], noAmount: [], noEmployee: [], errors, orders: [] };
+    const res = { added: 0, updated: 0, unchanged: 0, notFound: [], noAmount: [], noEmployee: [], errors, orders: [] };
     for (const [number, t] of results) {
       const ownerId = emp ? emp.id : this.ownerOf(number, t, source);
       if (ownerId == null) { res.noEmployee.push(number); continue; }
       if (!t.found) { res.notFound.push(number); }
       let o = this.findExisting(ownerId, number, { source, kind: t.mp && t.mp.kind, orderId: t.mp && t.mp.orderId });
-      if (o) { if (this.applyTracking(o, t)) res.updated++; }
+      if (o) { if (this.applyTracking(o, t)) res.updated++; else res.unchanged++; }
       else {
         if (!t.found && source !== 'manual') continue; // рядок таблиці лишається й без даних (як «НЕТ ДАННЫХ» у таблиці)
         o = this.normalizeOrder({ employeeId: ownerId, number, source, product: (products && products[number]) || product || t.product, channel: channel || t.channel, status: t.status, amount: t.amount || 0, date: t.date || todayLocal() });
@@ -415,16 +418,21 @@ class Service {
   // Рядки без імені (employeeId null) отримують працівника від кабінету, який знайде замовлення (addByTtn);
   // employee — працівник для таких рядків, якщо його все ж вказали.
   parsePasted(text, employee) {
-    const rows = [], unknown = [];
+    const rows = [], skipped = [];
     const fallback = employee != null && employee !== '' ? this.requireEmployee(employee) : null;
-    for (const raw of String(text || '').split(/\r?\n/)) {
-      const cells = raw.split('\t').map((c) => c.trim());
-      if (!cells.some(Boolean)) continue;
-      let number = '', emp = null, product = '';
+    const table = lib.splitPasted(text);
+    let total = 0;
+    table.forEach((raw, idx) => {
+      const cells = raw.map((c) => c.replace(/\s+/g, ' ').trim());
+      if (!cells.some(Boolean)) return; // порожній рядок виділення: не рахується, але номер рядка займає
+      total++;
+      const line = cells.filter(Boolean).join(' | ');
+      let number = '', emp = null;
       const rest = [];
       for (const c of cells) {
         if (!c) continue;
-        if (!number && (np.isTtn(c) || /^PRM[-\s]?\d{6,}$/i.test(c) || /^\d{6,20}$/.test(c))) { number = c.replace(/\s+/g, ''); continue; }
+        const n = !number && mp.numberCell(c);
+        if (n) { number = n; continue; }
         const e = !emp && this.resolveEmployee(c);
         if (e) { emp = e; continue; }
         rest.push(c);
@@ -436,26 +444,37 @@ class Service {
           if (code) { number = code; rest[i] = rest[i].replace(/[A-Z]{2,4}[-\s]?\d{6,}|\d{14}/i, '').replace(/\s+/g, ' ').trim(); }
         }
       }
-      product = rest.join(' ');
       if (!emp) emp = fallback;
-      if (!number) { unknown.push({ line: raw, reason: 'немає номера ТТН' }); continue; }
-      rows.push({ product, number, employeeId: emp ? emp.id : null, employee: emp ? emp.name : '' });
-    }
-    return { rows, unknown };
+      if (!number) { skipped.push({ row: idx + 1, line, reason: SKIP.noNumber }); return; }
+      rows.push({ row: idx + 1, line, product: rest.join(' '), number, employeeId: emp ? emp.id : null, employee: emp ? emp.name : '' });
+    });
+    return { rows, skipped, total };
   }
 
+  // Відповідь — звірка: total (рядків у вставленому) = counted (added + updated + unchanged) + skipped.length,
+  // skipped: [{row, line, reason, number?}] — кожен непорахований рядок із причиною (SKIP).
+  // Рівність тримається на тому, що addByTtn кожен номер відносить рівно в одне з: added, updated, unchanged, noEmployee.
   async addPasted(text, employee) {
-    const { rows, unknown } = this.parsePasted(text, employee);
-    if (!rows.length && !unknown.length) throw new ApiError(400, 'Порожній текст');
-    const res = { parsed: rows.length, added: 0, updated: 0, notFound: [], noAmount: [], noEmployee: [], errors: [], unknown };
-    for (const empId of new Set(rows.map((r) => r.employeeId))) {
-      const mine = rows.filter((r) => r.employeeId === empId);
-      const products = {};
-      for (const r of mine) if (r.product) products[r.number] = r.product;
-      const r = await this.addByTtn({ employeeId: empId, numbers: mine.map((x) => x.number), products });
-      res.added += r.added; res.updated += r.updated;
-      res.notFound.push(...r.notFound); res.noAmount.push(...r.noAmount); res.noEmployee.push(...r.noEmployee); res.errors.push(...r.errors);
+    const { rows, skipped, total } = this.parsePasted(text, employee);
+    if (!total) throw new ApiError(400, 'Порожній текст');
+    const res = { total, counted: 0, added: 0, updated: 0, unchanged: 0, notFound: [], noAmount: [], errors: [], skipped };
+    const groups = new Map(); // працівник → Map(номер → рядок); повтор номера в межах працівника не рахується двічі
+    for (const r of rows) {
+      if (!groups.has(r.employeeId)) groups.set(r.employeeId, new Map());
+      const mine = groups.get(r.employeeId);
+      if (mine.has(r.number)) skipped.push({ row: r.row, line: r.line, number: r.number, reason: SKIP.duplicate });
+      else mine.set(r.number, r);
     }
+    for (const [empId, mine] of groups) {
+      const products = {};
+      for (const r of mine.values()) if (r.product) products[r.number] = r.product;
+      const r = await this.addByTtn({ employeeId: empId, numbers: [...mine.keys()], products });
+      res.added += r.added; res.updated += r.updated; res.unchanged += r.unchanged;
+      res.notFound.push(...r.notFound); res.noAmount.push(...r.noAmount); res.errors.push(...r.errors);
+      for (const n of r.noEmployee) { const x = mine.get(n); skipped.push({ row: x.row, line: x.line, number: n, reason: SKIP.noEmployee }); }
+    }
+    res.counted = res.added + res.updated + res.unchanged;
+    skipped.sort((a, b) => a.row - b.row);
     return res;
   }
 

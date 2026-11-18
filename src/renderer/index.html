@@ -73,10 +73,14 @@
       <div class="panel manual-only">
         <h2>Вставити з таблиці</h2>
         <div class="row">
-          <label class="grow">Скопіюйте в таблиці колонки товар і ТТН (можна ще продажника — тоді він перебиває кабінет); порядок колонок неважливий <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
+          <label class="grow">Скопіюйте в таблиці колонки товар і ТТН (можна ще продажника — тоді він перебиває кабінет); порядок колонок неважливий, клітинки з кількома рядками тексту читаються як одна <textarea id="pasteText" rows="4" placeholder="щітка для бутлів&#9;20451520852070&#10;компас&#9;20451525462630&#9;Товкес"></textarea></label>
           <button id="pasteBtn">Додати й перевірити</button>
         </div>
         <div id="pasteStatus" class="status"></div>
+        <details id="pasteReport" class="report hidden">
+          <summary id="pasteReportTitle">Непораховані рядки</summary>
+          <table class="grid"><thead><tr><th class="num">Рядок</th><th>Що в рядку</th><th>Чому не пораховано</th></tr></thead><tbody id="pasteReportBody"></tbody></table>
+        </details>
       </div>
       <div class="toolbar filters">
         <label>Працівник <select id="fEmployee"><option value="">Усі</option></select></label>

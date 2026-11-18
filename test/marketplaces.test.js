@@ -64,6 +64,10 @@ test('маркетплейси: ключі, дати, гроші, проблем
   assert.strictEqual(mp.rozetkaDeliveryId('201666154468'), '201666154468');
   assert.strictEqual(mp.rozetkaDeliveryId('Біла Церква, НП 15, +380991709607'), '');
   assert.strictEqual(mp.rozetkaDeliveryId('723-3819734'), '');
+  // клітинка таблиці, яка вся є номером; телефон з іменем, адреса, назва товару — ні
+  assert.deepStrictEqual(['20451520852070', ' 723-5328470 ', 'prm 700000001', 'RMP-243919525', '201224462030  розетка', '429565672'].map(mp.numberCell),
+    ['20451520852070', '723-5328470', 'PRM-700000001', 'RMP-243919525', '201224462030', '429565672']);
+  assert.deepStrictEqual(['0501234567 Іванов', '380635225320 Микула', '067-1234567', 'Ужгород НП 1 0990072010', 'чохол (XJ3277) 3шт', 'RMP-243919525 723-4442154', '12345', ''].map(mp.numberCell), ['', '', '', '', '', '', '', '']);
   assert.strictEqual(mp.parseMoney('790 грн'), 790);
   assert.strictEqual(mp.parseMoney('1 234,50'), 1234.5);
   assert.strictEqual(mp.dateOf('2026-11-05 15:49:55'), '2026-11-05');
