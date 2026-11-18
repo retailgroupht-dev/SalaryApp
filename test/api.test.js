@@ -419,3 +419,21 @@ test('findExisting з індексом дає те саме, що й переб�
     }
   } finally { await t.cleanup(); }
 });
+
+test('автооновлення: перевіряє «Перевіряється» і «Немає даних» через невідправлену накладну НП (код 1)', async () => {
+  const t = await setup();
+  try {
+    const d = new Date();
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    const emp = t.service.data.employees[0].id;
+    const np = (code) => ({ checked: date, note: '', problem: '', np: { status: '', code, reason: '', received: '' }, mp: null, rd: null });
+    t.service.data.orders.push(
+      { id: 9001, employeeId: emp, number: '20451520852070', source: 'auto', amount: 278, status: 'nodata', date, channel: '', product: '', track: np('1') }, // посилку відправили й отримали
+      { id: 9002, employeeId: emp, number: '20451535524936', source: 'auto', amount: 100, status: 'nodata', date, channel: '', product: '', track: np('3') }, // звичайне «немає даних» — не чіпається
+    );
+    const r = await t.service.autoSync();
+    assert.strictEqual(r.checked, 1);
+    const byId = (id) => t.service.data.orders.find((o) => o.id === id).status;
+    assert.deepStrictEqual([byId(9001), byId(9002)], ['ok', 'nodata']);
+  } finally { await t.cleanup(); }
+});

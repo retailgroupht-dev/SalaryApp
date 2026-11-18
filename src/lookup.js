@@ -13,6 +13,15 @@ const mp = require('./marketplaces');
 
 const STATUS_BY_PROBLEM = { 'ОТКАЗ': 'refused', 'ВОЗВРАТ': 'refused', 'ОТМЕНА': 'cancelled' };
 
+// НП код 1 «Відправник самостійно створив цю накладну, але ще не надав до відправки»: тиждень від
+// створення накладної посилку ще чекаємо («Перевіряється»), далі — «Немає даних» (рішення власника 2026-11-18).
+// Якщо посилку все ж відправлять, наступна перевірка поверне звичайний статус.
+const NOT_SENT_DAYS = 7;
+function notSentTooLong(npR, now) {
+  const m = npR.npCode === '1' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(npR.dateCreated || '');
+  return !!m && (now - new Date(+m[1], m[2] - 1, +m[3])) / 864e5 >= NOT_SENT_DAYS;
+}
+
 // Що треба запитати для набору номерів. Дати для звуження гортання беруться лише з Нової Пошти
 // (дата імпортованого замовлення = день імпорту, на неї покладатися не можна).
 function plan(numbers) {
@@ -53,11 +62,12 @@ async function lookup(numbers, accounts, opts = {}) {
   const rdFound = rd.length ? await mp.rozetkaDelivery(rd, { fetch: fetchFn, sleep: opts.sleep }) : new Map();
 
   const results = new Map();
-  for (const p of pending) results.set(p.number, combine(p.number, npFound.get(p.number), mpFound.get(p.number), rdFound.get(mp.rozetkaDeliveryId(p.number))));
+  for (const p of pending) results.set(p.number, combine(p.number, npFound.get(p.number), mpFound.get(p.number), rdFound.get(mp.rozetkaDeliveryId(p.number)), opts.now));
   return { results, errors };
 }
 
-function combine(number, npR, mpR, rdR) {
+// now — «сьогодні» для порогу невідправленої накладної (у тестах — фіксована дата).
+function combine(number, npR, mpR, rdR, now = new Date()) {
   const npOk = npR && npR.found;
   const rdOk = rdR && rdR.found;
   const problems = [];
@@ -75,7 +85,7 @@ function combine(number, npR, mpR, rdR) {
   let status;
   if (problem) status = STATUS_BY_PROBLEM[problem];
   else if (!found) status = 'nodata';
-  else if (npOk) status = npR.received ? 'ok' : 'checking';
+  else if (npOk) status = npR.received ? 'ok' : notSentTooLong(npR, now) ? 'nodata' : 'checking';
   else if (rdOk) status = String(rdR.code) === '60030' || /видан|доставлен|вручен|отриман|одержан|получен/i.test(rdR.status) ? 'ok' : 'checking';
   else if (mpR && mpR.done === false) status = 'checking';
   else status = 'ok';

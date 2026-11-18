@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const mp = require('../src/marketplaces');
+const np = require('../src/np');
 const { combine, lookup } = require('../src/lookup');
 
 // Підроблені маркетплейси: Prom (2 сторінки), Rozetka (пошук за ТТН і сторінки), Епіцентр, Rozetka Delivery.
@@ -224,4 +225,18 @@ test('зведення: пріоритети суми й статусу', () => 
   assert.strictEqual(c.status, 'checking');
   c = combine('n', null, Object.assign({}, mpRz, { done: true }), null);
   assert.strictEqual(c.status, 'ok');
+});
+
+test('НП код 1 (накладну створено, не відправлено): тиждень — перевіряється, далі — немає даних', () => {
+  // живий формат документа НП з кодом 1 (ТТН 20451575823680, перевірено 2026-11-18)
+  const doc = (created) => np.mapDocument({ Number: '20451575823680', StatusCode: '1', Status: 'Відправник самостійно створив цю накладну, але ще не надав до відправки', DateCreated: created, RecipientDateTime: '' });
+  const now = new Date(2026, 10, 18, 10, 0);
+  const fresh = combine('20451575823680', doc('12-11-2026 18:20:05'), null, null, now);
+  assert.deepStrictEqual({ status: fresh.status, found: fresh.found }, { status: 'checking', found: true });
+  const old = combine('20451575823680', doc('11-11-2026 09:00:00'), null, null, now);
+  assert.deepStrictEqual({ status: old.status, found: old.found, np: old.np.code }, { status: 'nodata', found: true, np: '1' });
+  assert.strictEqual(require('../src/lib').statusDetail({ np: old.np }), 'Нова Пошта: Створено, ще не відправлено');
+  // маркетплейс зі скасуванням усе одно важливіший
+  const mpCancel = { kind: 'prom', channel: 'Prom', orderId: '1', status: 'Отменен', problem: 'ОТМЕНА', amount: 699, date: '2026-11-01' };
+  assert.strictEqual(combine('20451575823680', doc('01-11-2026 09:00:00'), mpCancel, null, now).status, 'cancelled');
 });

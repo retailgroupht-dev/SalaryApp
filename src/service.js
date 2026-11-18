@@ -627,7 +627,11 @@ class Service {
           } catch (err) { res.errors.push(`${e.name} ${period}: ${err.message || err}`); }
         }
         try {
-          const r = await this.refreshFromNp({ period, status: 'checking', source: 'auto' });
+          // «Немає даних» через невідправлену накладну НП (код 1) теж перевіряється: посилку можуть відправити пізніше.
+          const ids = this.listOrders({ period, source: 'auto' })
+            .filter((o) => o.status === 'checking' || (o.status === 'nodata' && o.track && o.track.np && o.track.np.code === '1'))
+            .map((o) => o.id);
+          const r = ids.length ? await this.refreshFromNp({ ids }) : { checked: 0, updated: 0, errors: [] };
           res.checked += r.checked; res.changed += r.updated; res.errors.push(...r.errors);
         } catch (err) { res.errors.push(`перевірка ${period}: ${err.message || err}`); }
       }
