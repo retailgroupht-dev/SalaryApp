@@ -40,6 +40,8 @@ class Service {
       if (!o.orderId && o.track && o.track.mp && o.track.mp.orderId) { o.orderId = String(o.track.mp.orderId); o.kind = o.track.mp.kind || ''; changed = true; }
       if (o.orderId == null) { o.orderId = ''; o.kind = o.kind || ''; changed = true; }
       if (!lib.SOURCE[o.source]) { o.source = 'auto'; changed = true; } // база до розділення на два набори
+      // невідправлена накладна НП (код 1) раніше лишалась «Перевіряється», тепер — «Немає даних» (2026-11-18)
+      if (o.status === 'checking' && o.track && o.track.np && o.track.np.code === '1') { o.status = 'nodata'; changed = true; }
     }
     const withTtn = new Set(this.data.orders.filter((o) => o.number && o.orderId).map((o) => `${o.source}|${o.employeeId}|${o.kind}|${o.orderId}`));
     const before = this.data.orders.length;
@@ -499,7 +501,7 @@ class Service {
       const owner = it.employee || (o && (this.resolveEmployee(o.employeeId) || {}).name) || '';
       // працівник рядка без імені до запису — лише припущення з бази: остаточно його визначить кабінет
       return { row: it.row, cells: it.cells, number: it.number, state: it.reason ? 'skip' : it.outcome || 'ok', reason: it.reason,
-        employee: owner, employeeGuess: !it.employee && !it.outcome && !!owner, amount: o ? o.amount : null, status: o ? o.status : '' };
+        employee: owner, employeeGuess: !it.employee && !it.outcome && !!owner, amount: o ? o.amount : null, status: o ? o.status : '', statusLabel: o ? lib.statusLabel(o.status, o.track) : '' };
     });
     const count = (state) => rows.filter((r) => r.state === state).length;
     const skipped = items.filter((it) => it.reason).map((it) => Object.assign({ row: it.row, line: it.line, reason: it.reason }, it.number ? { number: it.number } : {}));
@@ -604,7 +606,7 @@ class Service {
 
   // ---------- автоматичне оновлення ----------
   // Поточний і попередній місяць: зібрати відправлення з кабінетів кожного працівника й додати
-  // в замовлення, потім перевірити все зі статусом «Перевіряється». Паралельні запуски не допускаються.
+  // в замовлення, потім перевірити незавершені (checking: в дорозі, в обробці, ще не перевірені). Паралельні запуски не допускаються.
   async autoSync() {
     if (this.syncing) return { skipped: true, message: 'Уже виконується' };
     this.syncing = true;
@@ -666,7 +668,7 @@ class Service {
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders(filters).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
     const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status, lib.statusDetail(o.track)])];
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track)])];
     const source = filters.source ? (filters.source === 'auto' ? 'авто' : 'таблиця') : 'усі';
     const filename = `замовлення-${source}-${filters.period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Замовлення', rows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', count: orders.length };
@@ -677,13 +679,13 @@ class Service {
   exportBuffer(format, period, source) {
     source = this.salarySource(source);
     const { rows: summary, totals } = this.salary(period, source);
-    const head = ['Працівник', 'Ставка, %', 'Замовлень', 'Виконано', 'Відмови', 'Скасовано', 'Немає даних', 'Перевіряється', 'Сума виконаних', 'Зарплата'];
+    const head = ['Працівник', 'Ставка, %', 'Замовлень', 'Виконано', 'Відмови', 'Скасовано', 'Немає даних', lib.CHECKING_GROUP, 'Сума виконаних', 'Зарплата'];
     const sRows = [head, ...summary.map((s) => [s.name, s.ratePercent, s.total, s.done, s.refused, s.cancelled, s.nodata, s.checking, s.sumDone, s.salary])];
     sRows.push(['Разом', '', totals.total, totals.done, '', '', '', '', totals.sumDone, totals.salary]);
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
     const orders = this.listOrders({ period, source }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
     const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.STATUS[o.status] || o.status, lib.statusDetail(o.track)])];
+      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track)])];
     const filename = `зарплата-${source === 'auto' ? 'авто' : 'таблиця'}-${period || 'увесь-час'}.${format}`;
     if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, { name: 'Замовлення', rows: oRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...oRows]), 'utf8'), contentType: 'text/csv; charset=utf-8' };

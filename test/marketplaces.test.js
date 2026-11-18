@@ -227,16 +227,27 @@ test('зведення: пріоритети суми й статусу', () => 
   assert.strictEqual(c.status, 'ok');
 });
 
-test('НП код 1 (накладну створено, не відправлено): тиждень — перевіряється, далі — немає даних', () => {
+test('НП код 1 (накладну створено, не відправлено) — одразу «Немає даних», але сума, дата й власник з НП лишаються', () => {
   // живий формат документа НП з кодом 1 (ТТН 20451575823680, перевірено 2026-11-18)
-  const doc = (created) => np.mapDocument({ Number: '20451575823680', StatusCode: '1', Status: 'Відправник самостійно створив цю накладну, але ще не надав до відправки', DateCreated: created, RecipientDateTime: '' });
-  const now = new Date(2026, 10, 18, 10, 0);
-  const fresh = combine('20451575823680', doc('12-11-2026 18:20:05'), null, null, now);
-  assert.deepStrictEqual({ status: fresh.status, found: fresh.found }, { status: 'checking', found: true });
-  const old = combine('20451575823680', doc('11-11-2026 09:00:00'), null, null, now);
-  assert.deepStrictEqual({ status: old.status, found: old.found, np: old.np.code }, { status: 'nodata', found: true, np: '1' });
-  assert.strictEqual(require('../src/lib').statusDetail({ np: old.np }), 'Нова Пошта: Створено, ще не відправлено');
+  const doc = np.mapDocument({ Number: '20451575823680', StatusCode: '1', Status: 'Відправник самостійно створив цю накладну, але ще не надав до відправки', DateCreated: '17-11-2026 18:20:05', RecipientDateTime: '', RedeliverySum: '699' });
+  const c = combine('20451575823680', Object.assign(doc, { employeeId: 5 }), null, null);
+  assert.deepStrictEqual({ status: c.status, found: c.found, amount: c.amount, date: c.date, employeeId: c.employeeId, np: c.np.code },
+    { status: 'nodata', found: true, amount: 699, date: '2026-11-17', employeeId: 5, np: '1' });
+  assert.strictEqual(require('../src/lib').statusDetail({ np: c.np }), 'Нова Пошта: Створено, ще не відправлено');
   // маркетплейс зі скасуванням усе одно важливіший
   const mpCancel = { kind: 'prom', channel: 'Prom', orderId: '1', status: 'Отменен', problem: 'ОТМЕНА', amount: 699, date: '2026-11-01' };
-  assert.strictEqual(combine('20451575823680', doc('01-11-2026 09:00:00'), mpCancel, null, now).status, 'cancelled');
+  assert.strictEqual(combine('20451575823680', doc, mpCancel, null).status, 'cancelled');
+});
+
+test('назва статусу: «Перевіряється» лише поки ніхто не відповів', () => {
+  const lib = require('../src/lib');
+  const npTransit = { status: 'Прибув на відділення', code: '7', reason: '', received: '' };
+  const npUnknown = { status: 'Номер не знайдено', code: '3', reason: '', received: '' };
+  const mpOpen = { kind: 'prom', channel: 'Prom', orderId: '1', status: 'Принят' };
+  assert.strictEqual(lib.statusLabel('checking', { np: npTransit, mp: mpOpen }), 'В дорозі');
+  assert.strictEqual(lib.statusLabel('checking', { np: npUnknown, rd: { status: 'Прямує до відділення', code: 60010 } }), 'В дорозі');
+  assert.strictEqual(lib.statusLabel('checking', { np: npUnknown, rd: { status: 'посилку не знайдено' }, mp: mpOpen }), 'В обробці');
+  assert.strictEqual(lib.statusLabel('checking', null), 'Перевіряється');
+  assert.strictEqual(lib.statusLabel('checking', { np: null, mp: null, rd: null }), 'Перевіряється');
+  assert.strictEqual(lib.statusLabel('ok', { np: npTransit }), 'Виконано');
 });

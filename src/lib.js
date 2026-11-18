@@ -116,15 +116,27 @@ function monthOf(date) { return (date || '').slice(0, 7); }
 // Деталь статусу для таблиці: що саме сказав перевізник (Нова Пошта, Rozetka Delivery), інакше —
 // статус у кабінеті маркетплейсу. Довгі фрази НП скорочуються.
 const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
+const RD_ERROR = /^HTTP|з’єднання|не знайдено/; // Rozetka Delivery не відповіла або посилки не знає
 function statusDetail(track) {
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;
   if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
-  if (rd && rd.status && !/^HTTP|з’єднання|не знайдено/.test(rd.status)) return `Rozetka Delivery: ${rd.status}${rd.date ? ` (${rd.date})` : ''}`;
+  if (rd && rd.status && !RD_ERROR.test(rd.status)) return `Rozetka Delivery: ${rd.status}${rd.date ? ` (${rd.date})` : ''}`;
   if (mp && mp.status) return `${mp.channel || mp.kind}: ${mp.status}`;
   if (rd && rd.status) return `Rozetka Delivery: ${rd.status}`;
   if (np && np.status) return `Нова Пошта: ${np.status}`;
   return '';
+}
+
+// Назва статусу для людини. «Перевіряється» (checking) — лише поки жодне джерело не відповіло; якщо відповідь
+// є, видно яка: перевізник знає посилку, але ще не видав — «В дорозі»; знає лише маркетплейс, замовлення не
+// завершене — «В обробці» (рішення власника 2026-11-18). Ключ лишається checking — API і фільтри не змінюються.
+const CHECKING_GROUP = 'В дорозі / в обробці'; // заголовок колонки й пункт фільтра: усі checking разом
+function statusLabel(status, track) {
+  if (status !== 'checking') return STATUS[status] || status;
+  const t = track || {};
+  if ((t.np && t.np.code && t.np.code !== '3') || (t.rd && t.rd.status && !RD_ERROR.test(t.rd.status))) return 'В дорозі';
+  return t.mp ? 'В обробці' : STATUS.checking;
 }
 
 // Два набори замовлень: 'auto' — веде програма (кабінети маркетплейсів), 'manual' — з таблиці або вставки.
@@ -278,6 +290,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, statusDetail, splitPasted, htmlTable, toCsv, mergeOrders,
+  SOURCE, statusDetail, statusLabel, CHECKING_GROUP, splitPasted, htmlTable, toCsv, mergeOrders,
   calcSalary, monthOf, round2, buildXlsx, crc32,
 };

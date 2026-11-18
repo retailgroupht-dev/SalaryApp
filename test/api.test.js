@@ -437,3 +437,21 @@ test('автооновлення: перевіряє «Перевіряєтьс�
     assert.deepStrictEqual([byId(9001), byId(9002)], ['ok', 'nodata']);
   } finally { await t.cleanup(); }
 });
+
+test('статуси: старі «Перевіряється» з кодом НП 1 → «Немає даних»; в експорті видно «В дорозі» / «В обробці»', async () => {
+  const t = await setup();
+  try {
+    const emp = t.service.data.employees[0].id;
+    const tr = (np, mp) => ({ checked: '2026-11-18', note: '', problem: '', np, mp, rd: null });
+    t.service.data.orders.push(
+      { id: 9101, employeeId: emp, number: '20451575823680', source: 'auto', amount: 699, status: 'checking', date: '2026-11-01', channel: '', product: 'а', orderId: '', kind: '', track: tr({ status: 'Створено', code: '1', reason: '', received: '' }, null) },
+      { id: 9102, employeeId: emp, number: '20451521500117', source: 'auto', amount: 100, status: 'checking', date: '2026-11-02', channel: '', product: 'б', orderId: '', kind: '', track: tr({ status: 'Прибув на відділення', code: '7', reason: '', received: '' }, null) },
+      { id: 9103, employeeId: emp, number: '', source: 'auto', amount: 200, status: 'checking', date: '2026-11-03', channel: 'Prom', product: 'в', orderId: '5', kind: 'prom', track: tr(null, { kind: 'prom', channel: 'Prom', orderId: '5', status: 'Принят' }) },
+    );
+    t.service.migrateNumbers();
+    assert.strictEqual(t.service.data.orders.find((o) => o.id === 9101).status, 'nodata');
+    const csv = t.service.exportOrdersBuffer('csv', { source: 'auto', period: '2026-11' }).buffer.toString('utf8');
+    assert.match(csv, /,б,.*,В дорозі,/);
+    assert.match(csv, /,в,.*,В обробці,/);
+  } finally { await t.cleanup(); }
+});

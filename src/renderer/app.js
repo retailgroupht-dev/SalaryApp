@@ -13,18 +13,27 @@ const copyCell = (v, title) => (v ? `<span class="copy" data-copy="${esc(v)}" ti
 const numCells = (o) => `<td class="nowrap">${copyCell(o.number, 'ТТН')}</td><td class="nowrap">${copyCell(o.orderId, '№ замовлення в кабінеті')}</td>`;
 // Статус: бейдж + рядком нижче деталь (що сказав перевізник або кабінет); повний опис — у підказці.
 const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
+const RD_ERROR = /^HTTP|з’єднання|не знайдено/;
 function statusDetail(track) {
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;
   if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
-  if (rd && rd.status && !/^HTTP|з’єднання|не знайдено/.test(rd.status)) return `Rozetka Delivery: ${rd.status}${rd.date ? ` (${rd.date})` : ''}`;
+  if (rd && rd.status && !RD_ERROR.test(rd.status)) return `Rozetka Delivery: ${rd.status}${rd.date ? ` (${rd.date})` : ''}`;
   if (mp && mp.status) return `${mp.channel || mp.kind}: ${mp.status}`;
   if (rd && rd.status) return `Rozetka Delivery: ${rd.status}`;
   if (np && np.status) return `Нова Пошта: ${np.status}`;
   return '';
 }
-const badge = (status) => `<span class="badge ${status}">${STATUS[status] || status}</span>`;
-const statusCell = (status, track, note) => `<td class="status-cell" title="${esc(note || '')}">${badge(status)}<div class="detail clip">${esc(statusDetail(track))}</div></td>`;
+// Як lib.statusLabel: «Перевіряється» — лише поки ніхто не відповів, інакше «В дорозі» (перевізник) або «В обробці» (маркетплейс).
+const CHECKING_GROUP = 'В дорозі / в обробці';
+function statusLabel(status, track) {
+  if (status !== 'checking') return STATUS[status] || status;
+  const t = track || {};
+  if ((t.np && t.np.code && t.np.code !== '3') || (t.rd && t.rd.status && !RD_ERROR.test(t.rd.status))) return 'В дорозі';
+  return t.mp ? 'В обробці' : STATUS.checking;
+}
+const badge = (status, label) => `<span class="badge ${status}">${esc(label || STATUS[status] || status)}</span>`;
+const statusCell = (status, track, note) => `<td class="status-cell" title="${esc(note || '')}">${badge(status, statusLabel(status, track))}<div class="detail clip">${esc(statusDetail(track))}</div></td>`;
 let toastTimer = null;
 function toast(text) {
   const el = $('#toast'); el.textContent = text; el.classList.remove('hidden');
@@ -112,7 +121,7 @@ function renderOrders() {
   const curPeriod = fPeriodSel.dataset.set ? fPeriodSel.value : '';
   fillPeriodSelect(fPeriodSel, curPeriod, 'Усі'); fPeriodSel.dataset.set = '1';
   const fStatus = $('#fStatus');
-  if (fStatus.options.length === 1) fStatus.innerHTML += Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  if (fStatus.options.length === 1) fStatus.innerHTML += Object.entries(Object.assign({}, STATUS, { checking: CHECKING_GROUP })).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
   $('#ordersTitle').textContent = `Замовлення: ${SOURCE[state.ordersSource]}`;
   const emp = Number($('#fEmployee').value) || null, period = fPeriodSel.value, st = fStatus.value, q = $('#fSearch').value.trim().toLowerCase();
   const list = data.orders.filter((o) => o.source === state.ordersSource && (!emp || o.employeeId === emp) && (!period || monthOf(o.date) === period) && (!st || o.status === st)
@@ -387,7 +396,7 @@ function bind() {
       const bad = x.state === 'skip';
       const who = x.employee ? esc(x.employee) + (x.employeeGuess ? ' <span class="muted" title="Так записано в базі; остаточно визначить кабінет">(з бази)</span>' : '')
         : (bad ? '' : '<span class="muted">визначить кабінет</span>');
-      const status = x.status ? ' · ' + badge(x.status) : '';
+      const status = x.status ? ' · ' + badge(x.status, x.statusLabel) : '';
       return `<tr class="${bad ? 'bad' : ''}"><td class="num">${x.row}</td>${Array.from({ length: cols }, (_, i) => `<td class="cell">${esc(x.cells[i] || '')}</td>`).join('')}
         <td class="calc nowrap">${esc(x.number)}</td><td class="calc">${who}</td><td class="calc num">${x.amount == null ? '—' : fmt(x.amount)}</td>
         <td class="calc">${bad ? esc(x.reason) : PASTE_STATE[x.state] + status}</td></tr>`;

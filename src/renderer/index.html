@@ -36,7 +36,7 @@
       <table id="salaryTable" class="grid">
         <thead><tr>
           <th>Працівник</th><th class="num">Ставка, %</th><th class="num">Замовлень</th><th class="num">Виконано</th>
-          <th class="num">Відмови</th><th class="num">Скасовано</th><th class="num">Немає даних</th><th class="num">Перевіряється</th>
+          <th class="num">Відмови</th><th class="num">Скасовано</th><th class="num">Немає даних</th><th class="num" title="Ще не завершено: посилка в дорозі, замовлення в обробці або ще не перевірено">В дорозі / в обробці</th>
           <th class="num">Сума виконаних</th><th class="num">Зарплата</th>
         </tr></thead>
         <tbody></tbody>
@@ -154,7 +154,7 @@
       </div>
       <div class="panel">
         <h2>Автоматичне оновлення</h2>
-        <p class="hint">Застосунок сам збирає відправлення з кабінетів за поточний і попередній місяць, додає їх у замовлення і перевіряє все зі статусом «Перевіряється». Запускається через 20 секунд після старту й далі за розкладом.</p>
+        <p class="hint">Застосунок сам збирає відправлення з кабінетів за поточний і попередній місяць, додає їх у замовлення і перевіряє незавершені (в дорозі, в обробці, ще не перевірені) та «Немає даних» через невідправлену накладну. Запускається через 20 секунд після старту й далі за розкладом.</p>
         <div class="row">
           <label class="check"><span><input id="autoEnabled" type="checkbox"> Увімкнути</span></label>
           <label>Кожні <select id="autoHours"><option value="1">1 годину</option><option value="3">3 години</option><option value="6">6 годин</option><option value="12">12 годин</option><option value="24">24 години</option></select></label>
