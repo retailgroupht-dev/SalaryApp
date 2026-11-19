@@ -1,7 +1,7 @@
 {
   "name": "salary-app",
   "productName": "SalaryApp",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "SalaryApp — розрахунок зарплат працівників за виконаними замовленнями (ht-dron)",
   "main": "src/main.js",
   "author": "ht-dron",
@@ -20,13 +20,58 @@
     "productName": "SalaryApp",
     "icon": "build/icon.png",
     "artifactName": "salary-app-${version}-${os}-${arch}.${ext}",
-    "files": ["src/**/*", "build/icon.png", "package.json"],
-    "directories": { "output": "dist" },
-    "publish": { "provider": "github", "owner": "retailgroupht-dev", "repo": "SalaryApp", "releaseType": "release" },
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
-    "nsis": { "oneClick": true, "perMachine": false, "language": "1058" },
-    "mac": { "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }], "category": "public.app-category.finance", "identity": null },
-    "linux": { "target": ["AppImage"] }
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "retailgroupht-dev",
+      "repo": "SalaryApp",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "language": "1058"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.finance",
+      "identity": null
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
   },
   "devDependencies": {
     "electron": "^33.2.1",
