@@ -774,7 +774,7 @@ class Service {
   // Список замовлень (набір + фільтри, як у вкладці) одним аркушем.
   exportOrdersBuffer(format, filters = {}) {
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
-    const orders = this.listOrders(filters).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
+    const orders = this.listOrders(filters).sort(lib.orderCompare((id) => byId.get(id)));
     const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
       ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
     const source = filters.source ? (filters.source === 'auto' ? 'авто' : 'таблиця') : 'усі';
@@ -791,7 +791,7 @@ class Service {
     const sRows = [head, ...summary.map((s) => [s.name, s.ratePercent, s.total, s.done, s.refused, s.cancelled, s.nodata, s.checking, s.sumDone, s.salary])];
     sRows.push(['Разом', '', totals.total, totals.done, '', '', '', '', totals.sumDone, totals.salary]);
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
-    const orders = this.listOrders({ period, source }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
+    const orders = this.listOrders({ period, source }).sort(lib.orderCompare((id) => byId.get(id)));
     const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
       ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
     const filename = `зарплата-${source === 'auto' ? 'авто' : 'таблиця'}-${period || 'увесь-час'}.${format}`;

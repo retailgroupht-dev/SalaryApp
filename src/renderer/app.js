@@ -35,6 +35,18 @@ function statusLabel(status, track) {
   if ((t.np && t.np.code && t.np.code !== '3') || (t.rd && t.rd.status && !RD_ERROR.test(t.rd.status))) return 'В дорозі';
   return t.mp ? 'В обробці' : STATUS.checking;
 }
+// як lib.statusRank / lib.orderCompare
+function statusRank(o) {
+  const t = o.track || {};
+  if (o.invalid) return 7;
+  if (o.status === 'ok') return 0;
+  if (o.status === 'nodata') return t.np && t.np.code === '1' ? 5 : 1;
+  if (o.status === 'refused') return t.problem === 'ВОЗВРАТ' ? 3 : 2;
+  if (o.status === 'cancelled') return 4;
+  return 6;
+}
+const orderCompare = (a, b) => statusRank(a) - statusRank(b) || ((data.employees.find((e) => e.id === a.employeeId) || {}).name || '').localeCompare((data.employees.find((e) => e.id === b.employeeId) || {}).name || '', 'uk')
+  || (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);
 const badge = (status, label) => `<span class="badge ${status}">${esc(label || STATUS[status] || status)}</span>`;
 // o — замовлення або відправлення: {status, track, number, orderId}.
 const statusCell = (o, note) => `<td class="status-cell" title="${esc(note || '')}">${badge(o.status, statusLabel(o.status, o.track))}<div class="detail clip">${esc(statusDetail(o.track, o))}</div></td>`;
@@ -112,7 +124,7 @@ function renderSalaryDetail() {
   if (!id || !data.employees.some((e) => e.id === id)) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
   const orders = data.orders.filter((o) => o.employeeId === id && o.source === state.salarySource && (!state.salaryPeriod || orderMonth(o) === state.salaryPeriod))
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
+    .sort(orderCompare);
   $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'}, ${SOURCE[state.salarySource]} (${orders.length})`;
   box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
     <td class="num">${fmt(o.amount)}</td><td>${esc(o.channel)}</td>${statusCell(o, trackTitle(o))}</tr>`).join('')
@@ -131,7 +143,7 @@ function renderOrders() {
   const emp = Number($('#fEmployee').value) || null, period = fPeriodSel.value, st = fStatus.value, q = $('#fSearch').value.trim().toLowerCase();
   const list = data.orders.filter((o) => o.source === state.ordersSource && (!emp || o.employeeId === emp) && (!period || orderMonth(o) === period) && (!st || o.status === st)
     && (!q || (o.product || '').toLowerCase().includes(q) || (o.number || '').toLowerCase().includes(q) || (o.orderId || '').toLowerCase().includes(q)))
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
+    .sort(orderCompare);
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
     <td><input type="checkbox" class="sel" data-id="${o.id}" ${state.selected.has(o.id) ? 'checked' : ''}></td>
     <td class="nowrap">${o.date}</td><td>${esc(empName(o.employeeId))}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}

@@ -160,6 +160,23 @@ function statusLabel(status, track) {
   return t.mp ? 'В обробці' : STATUS.checking;
 }
 
+// Порядок у списках замовлень (власник 2026-11-19): виконані → немає даних → відмови → повернення → скасовані →
+// не відправлено (НП код 1) → у дорозі / в обробці → неправильні рядки; у групі — працівник за абеткою, далі новіші вище.
+function statusRank(o) {
+  const t = o.track || {};
+  if (o.invalid) return 7;
+  if (o.status === 'ok') return 0;
+  if (o.status === 'nodata') return t.np && t.np.code === '1' ? 5 : 1;
+  if (o.status === 'refused') return t.problem === 'ВОЗВРАТ' ? 3 : 2;
+  if (o.status === 'cancelled') return 4;
+  return 6;
+}
+// nameOf(employeeId) → ім’я працівника.
+function orderCompare(nameOf) {
+  return (a, b) => statusRank(a) - statusRank(b) || String(nameOf(a.employeeId) || '').localeCompare(String(nameOf(b.employeeId) || ''), 'uk')
+    || (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);
+}
+
 // Два набори замовлень: 'auto' — веде програма (кабінети маркетплейсів), 'manual' — з таблиці або вставки.
 const SOURCE = { auto: 'Авто (кабінети)', manual: 'Таблиця (вручну)' };
 
@@ -312,5 +329,5 @@ function buildXlsx(sheets) {
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
   SOURCE, statusDetail, statusLabel, CHECKING_GROUP, NO_NUMBER, DUP, splitPasted, htmlTable, toCsv, mergeOrders,
-  calcSalary, monthOf, orderMonth, sheetDate, round2, buildXlsx, crc32,
+  calcSalary, monthOf, orderMonth, sheetDate, statusRank, orderCompare, round2, buildXlsx, crc32,
 };
