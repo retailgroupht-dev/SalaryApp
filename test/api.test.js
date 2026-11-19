@@ -216,11 +216,14 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.strictEqual(r.body.accounts[0].employeeId, t.service.resolveEmployee('Настя').id);
 
     // ім’я в рядку має перевагу над кабінетом; кожен рядок — свій запис (і без номера, і дубль ТТН);
-    // не записується лише рядок працівника, якого немає в застосунку
+    // рядок працівника, якого немає в застосунку, — теж запис, позначений неправильним
     r = await t.call('POST', '/api/import/paste', { text: 'щітка\t20451520852070\tНастя\nкомпас\t20451520852070\tТовкес\nбез номера\t\tНастя\nщось\t20451535524936\tНевідомий\n' });
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, duplicates: r.body.duplicates, skipped: r.body.skipped.map((u) => [u.row, u.reason, u.number]) },
-      { total: 4, counted: 3, added: 3, duplicates: 1, skipped: [[4, 'працівника «Невідомий» немає в застосунку', '20451535524936']] });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, duplicates: r.body.duplicates, invalid: r.body.invalid.map((u) => [u.row, u.reason, u.number]) },
+      { total: 4, counted: 4, added: 4, duplicates: 1, invalid: [[4, 'працівника «Невідомий» немає в застосунку', '20451535524936']] });
+    const bad = t.service.data.orders.find((o) => o.invalid);
+    assert.deepStrictEqual({ employeeId: bad.employeeId, status: bad.status, detail: require('../src/lib').statusDetail(bad.track, bad) },
+      { employeeId: null, status: 'refused', detail: 'Неправильний рядок: працівника «Невідомий» немає в застосунку' }); // статус НП є, але в зарплату не йде
     const nastya = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Настя').id);
     const tovkes = t.service.data.orders.find((o) => o.employeeId === t.service.resolveEmployee('Товкес').id);
     assert.deepStrictEqual({ product: nastya.product, amount: nastya.amount, channel: nastya.channel, date: nastya.date }, { product: 'щітка', amount: 300, channel: 'Пром Насті', date: '2026-08-30' });
@@ -233,13 +236,13 @@ test('API: вставка з таблиці, відправлення з каб�
     assert.strictEqual(r.body.added, 1);
     // без імені й без параметра: працівника дає кабінет (Prom Насті); № замовлення кабінету = те саме замовлення, не дубль
     r = await t.call('POST', '/api/import/paste', { text: 'лампа\t20451520852070' });
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, updated: r.body.updated, skipped: r.body.skipped }, { total: 1, counted: 1, added: 0, updated: 0, skipped: [] });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, updated: r.body.updated, invalid: r.body.invalid }, { total: 1, counted: 1, added: 0, updated: 1, invalid: [] }); // updated: запис отримав місяць вкладки
     r = await t.call('POST', '/api/track', { numbers: ['777'] });
     assert.deepStrictEqual({ added: r.body.added, updated: r.body.updated, id: r.body.orders[0].id }, { added: 0, updated: 0, id: nastya.id });
     assert.strictEqual(t.service.data.orders.filter((o) => o.employeeId === nastya.employeeId).length, 3); // щітка, без номера, пончо
     // лише дві колонки (товар і ТТН) — працівник з параметра; ім’я в рядку має перевагу; код посилки всередині клітинки з товаром
     r = await t.call('POST', '/api/import/paste', { text: 'шпалери\t20451521500117\nщітка\t20451520852070\tТовкес\nчохли на велик (XJ3277) 3шт RMP-1037574\t', employee: 'Настя' });
-    assert.deepStrictEqual({ total: r.body.total, updated: r.body.updated, skipped: r.body.skipped.length }, { total: 3, updated: 0, skipped: 0 });
+    assert.deepStrictEqual({ total: r.body.total, added: r.body.added, invalid: r.body.invalid.length }, { total: 3, added: 1, invalid: 0 }); // нове — лише RMP
     const rmp = t.service.data.orders.find((o) => o.number === 'RMP-1037574');
     assert.deepStrictEqual({ product: rmp.product, employeeId: rmp.employeeId, status: rmp.status }, { product: 'чохли на велик (XJ3277) 3шт', employeeId: t.service.resolveEmployee('Настя').id, status: 'nodata' });
 
@@ -357,8 +360,8 @@ test('API: вставка з таблиці — звірка рядків, ба�
     let r = await t.call('POST', '/api/import/paste', { text });
     assert.strictEqual(r.status, 200);
     // рядків у буфері 7 → записів 7: без номера й дубль теж
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, duplicates: r.body.duplicates, skipped: r.body.skipped },
-      { total: 7, counted: 7, added: 7, duplicates: 1, skipped: [] });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, duplicates: r.body.duplicates, invalid: r.body.invalid },
+      { total: 7, counted: 7, added: 7, duplicates: 1, invalid: [] });
     assert.deepStrictEqual(r.body.rows.map((x) => [x.row, x.dupOf]), [[1, 0], [2, 0], [4, 0], [5, 0], [6, 2], [7, 0], [8, 0]]);
     const all = (n) => t.service.data.orders.filter((o) => o.number === n);
     const byNumber = (n) => all(n)[0];
@@ -369,11 +372,14 @@ test('API: вставка з таблиці — звірка рядків, ба�
     assert.strictEqual(t.service.data.orders.length, 7);
     // повторна вставка того самого діапазону: нічого не подвоюється, усі 7 — «без змін»
     r = await t.call('POST', '/api/import/paste', { text });
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, unchanged: r.body.unchanged, skipped: r.body.skipped.length }, { total: 7, counted: 7, added: 0, unchanged: 7, skipped: 0 });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, existing: r.body.updated + r.body.unchanged, invalid: r.body.invalid.length }, { total: 7, counted: 7, added: 0, existing: 7, invalid: 0 });
     assert.strictEqual(t.service.data.orders.length, 7);
-    // рядок без імені, якого немає ні в базі, ні в кабінетах працівників — у звірці з причиною
+    // рядок без імені, якого немає ні в базі, ні в кабінетах працівників — запис, позначений неправильним
     r = await t.call('POST', '/api/import/paste', { text: 'щось\t20459999999997' });
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, skipped: r.body.skipped.map((x) => x.reason) }, { total: 1, counted: 0, skipped: ['не визначено працівника: імені в рядку немає, а кабінети працівників замовлення не знайшли'] });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, invalid: r.body.invalid.map((x) => x.reason) }, { total: 1, counted: 1, invalid: ['не визначено працівника: імені в рядку немає, а кабінети працівників замовлення не знайшли'] });
+    assert.strictEqual(t.service.data.orders.length, 8);
+    r = await t.call('POST', '/api/import/paste', { text: 'щось\t20459999999997' }); // повтор — той самий неправильний запис
+    assert.deepStrictEqual({ added: r.body.added, total: t.service.data.orders.length }, { added: 0, total: 8 });
   } finally { await t.cleanup(); }
 });
 
@@ -385,7 +391,7 @@ test('API: вставка html-таблиці з буфера — поперед
     // перегляд: нічого не записано; рядок з адресою замість ТТН — один рядок, запишеться як «Немає даних»
     let r = await t.call('POST', '/api/import/paste', { html, text: 'це ігнорується, бо є таблиця', preview: true });
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, new: r.body.new, skipped: r.body.skipped }, { total: 4, counted: 4, new: 4, skipped: [] });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, new: r.body.new, invalid: r.body.invalid }, { total: 4, counted: 4, new: 4, invalid: [] });
     assert.deepStrictEqual(r.body.rows.map((x) => [x.row, x.number, x.employee, x.amount, x.state, x.status]),
       [[1, '20451520852070', 'Товкес', null, 'new', ''], [2, '20451535524936', 'Товкес', null, 'new', ''], [3, '', 'Товкес', null, 'new', 'nodata'], [4, '20451521500117', 'Настя', null, 'new', '']]);
     assert.ok(r.body.rows[2].cells[1].includes('\n') && r.body.rows[2].cells[1].includes('0500000000')); // клітинка показується як у таблиці
@@ -395,7 +401,7 @@ test('API: вставка html-таблиці з буфера — поперед
     assert.deepStrictEqual(viaText.body.rows.map((x) => [x.row, x.number, x.state]), r.body.rows.map((x) => [x.row, x.number, x.state]));
     // «Порахувати»: запис і результат кожного рядка
     r = await t.call('POST', '/api/import/paste', { html });
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, skipped: r.body.skipped.length }, { total: 4, counted: 4, added: 4, skipped: 0 });
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, added: r.body.added, invalid: r.body.invalid.length }, { total: 4, counted: 4, added: 4, invalid: 0 });
     assert.deepStrictEqual(r.body.rows.map((x) => [x.row, x.state, x.amount, x.status]), [[1, 'added', 278, 'ok'], [2, 'added', 0, 'refused'], [3, 'added', 0, 'nodata'], [4, 'added', 0, t.service.data.orders.find((o) => o.number === '20451521500117').status]]);
     assert.strictEqual(t.service.data.orders.length, 4);
     // перегляд після запису: сума й статус уже відомі з бази
@@ -403,8 +409,7 @@ test('API: вставка html-таблиці з буфера — поперед
     assert.deepStrictEqual([r.body.rows[0].amount, r.body.rows[0].status, r.body.rows[0].state, r.body.existing], [278, 'ok', 'existing', 4]);
     // готові рядки клітинок; рядок без імені бере працівника з того, що програма вже знає
     r = await t.call('POST', '/api/import/paste', { rows: [['щітка', 20451520852070], ['', ''], ['без номера']], preview: true });
-    assert.deepStrictEqual(r.body.rows.map((x) => [x.row, x.employee, x.state]), [[1, 'Товкес', 'existing'], [3, '', 'skip']]);
-    assert.strictEqual(r.body.skipped[0].reason, 'немає ні номера, ні працівника');
+    assert.deepStrictEqual(r.body.rows.map((x) => [x.row, x.employee, x.state, x.reason]), [[1, 'Товкес', 'existing', ''], [3, '', 'new', 'немає ні номера, ні працівника']]);
     // той самий номер у рядку з іменем і в рядку без імені — два рядки, другий позначено дублем
     r = await t.call('POST', '/api/import/paste', { rows: [['щітка', '20451520852070', 'Товкес'], ['щітка', '20451520852070']], preview: true });
     assert.deepStrictEqual({ counted: r.body.counted, duplicates: r.body.duplicates, dupOf: r.body.rows.map((x) => x.dupOf) }, { counted: 2, duplicates: 1, dupOf: [0, 1] });
@@ -499,14 +504,16 @@ test('вставка вкладки таблиці (живий формат ко
     ];
     const oct = lib.sheetDate('30.10').slice(0, 7);
     let r = await t.call('POST', '/api/import/paste', { rows, preview: true });
-    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, month: r.body.month, skipped: r.body.skipped.map((x) => [x.row, x.reason]) },
-      { total: 6, counted: 4, month: oct, skipped: [[5, 'працівника «Петренко» немає в застосунку'], [6, 'немає ні номера, ні працівника']] });
+    // кожен рядок буде записано; неправильні — з позначкою
+    assert.deepStrictEqual({ total: r.body.total, counted: r.body.counted, month: r.body.month, invalid: r.body.invalid.map((x) => [x.row, x.reason]) },
+      { total: 6, counted: 6, month: oct, invalid: [[5, 'працівника «Петренко» немає в застосунку'], [6, 'немає ні номера, ні працівника']] });
     assert.deepStrictEqual(r.body.rows.slice(0, 4).map((x) => x.employee), ['Настя', 'Настя', 'Товкес', 'Товкес']);
     assert.strictEqual(t.service.data.orders.length, 0);
 
     r = await t.call('POST', '/api/import/paste', { rows });
-    assert.deepStrictEqual({ counted: r.body.counted, added: r.body.added }, { counted: 4, added: 4 });
-    const manual = () => t.service.listOrders({ source: 'manual', period: oct });
+    assert.deepStrictEqual({ counted: r.body.counted, added: r.body.added }, { counted: 6, added: 6 });
+    assert.strictEqual(t.service.listOrders({ source: 'manual', period: oct }).length, 6); // у місяці вкладки — усі 6 рядків
+    const manual = () => t.service.listOrders({ source: 'manual', period: oct }).filter((o) => !o.invalid);
     assert.deepStrictEqual(manual().map((o) => [o.product, o.month]), [['гачок (XJ6120) 3 набори', oct], ['лупа', oct], ['мило', oct], ['ніж', oct]]);
     const soap = t.service.data.orders.find((o) => o.product === 'мило');
     assert.deepStrictEqual({ status: soap.status, date: soap.date }, { status: 'nodata', date: lib.sheetDate('30.10') }); // дата пакування з рядка вище
@@ -514,13 +521,15 @@ test('вставка вкладки таблиці (живий формат ко
     // повторна вставка, навіть з іншою позначкою «запаковано»: нічого не подвоюється
     rows[2][5] = 'Запаковано';
     r = await t.call('POST', '/api/import/paste', { rows });
-    assert.deepStrictEqual({ counted: r.body.counted, added: r.body.added }, { counted: 4, added: 0 });
-    assert.strictEqual(t.service.data.orders.length, 4);
+    assert.deepStrictEqual({ counted: r.body.counted, added: r.body.added }, { counted: 6, added: 0 });
+    assert.strictEqual(t.service.data.orders.length, 6);
     // місяць вкладки можна вибрати; правка запису у формі його не скидає
     r = await t.call('POST', '/api/import/paste', { rows, month: '2026-09' });
-    assert.deepStrictEqual({ updated: r.body.updated, month: r.body.month }, { updated: 4, month: '2026-09' });
+    assert.deepStrictEqual({ updated: r.body.updated, month: r.body.month }, { updated: 6, month: '2026-09' });
     t.service.upsertOrder({ id: soap.id, employeeId: soap.employeeId, product: 'мило рідке', number: '', date: soap.date, source: 'manual', amount: 0, status: 'nodata' });
     assert.strictEqual(t.service.data.orders.find((o) => o.id === soap.id).month, '2026-09');
-    assert.strictEqual(t.service.listOrders({ source: 'manual', period: '2026-09' }).length, 4);
+    assert.strictEqual(t.service.listOrders({ source: 'manual', period: '2026-09' }).length, 6);
+    // неправильні рядки без працівника в зарплату не йдуть
+    assert.strictEqual(lib.calcSalary(t.service.data, '2026-09', 'manual').reduce((n, x) => n + x.total, 0), 4);
   } finally { await t.cleanup(); }
 });

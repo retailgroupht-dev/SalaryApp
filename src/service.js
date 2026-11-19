@@ -145,13 +145,14 @@ class Service {
 
   // ---------- замовлення ----------
   normalizeOrder(order) {
-    const emp = this.requireEmployee(order.employeeId != null ? order.employeeId : order.employee);
+    const invalid = String(order.invalid || '').trim(); // неправильний рядок вставки: записується як є, причина тут
+    const emp = invalid && order.employeeId == null && !order.employee ? null : this.requireEmployee(order.employeeId != null ? order.employeeId : order.employee);
     const number = String(order.number || '').trim().replace(/\s+/g, ' '), orderId = String(order.orderId || '').trim();
     let status = lib.STATUS[order.status] ? order.status : 'checking';
     if (status === 'checking' && !number && !orderId) status = 'nodata'; // перевіряти нема чого (lib.NO_NUMBER)
     return {
       id: Number(order.id) || 0,
-      employeeId: emp.id,
+      employeeId: emp ? emp.id : null,
       product: String(order.product || '').trim(),
       number,
       orderId,
@@ -164,6 +165,7 @@ class Service {
       month: isMonth(order.month) ? order.month : '', // місяць вкладки таблиці для вставленого (lib.orderMonth)
       pasted: !!order.pasted, // запис рядка вставки з 2026-11-19 (matchPasted)
       dup: Number(order.dup) || 0, // повтор номера в таблиці: № першого рядка; сума рахується один раз
+      invalid, // «Неправильний рядок: …» — рядок вставки без працівника; у зарплату не йде
       track: order.track && typeof order.track === 'object'
         ? { checked: String(order.track.checked || ''), note: String(order.track.note || ''), problem: String(order.track.problem || ''),
           np: order.track.np || null, mp: order.track.mp || null, rd: order.track.rd || null }
@@ -177,7 +179,7 @@ class Service {
     const old = order && order.id ? this.data.orders.find((x) => x.id === Number(order.id)) : null;
     if (!old) return order;
     const keep = {};
-    for (const k of ['month', 'pasted', 'dup']) if (order[k] === undefined) keep[k] = old[k];
+    for (const k of ['month', 'pasted', 'dup', 'invalid']) if (order[k] === undefined) keep[k] = old[k];
     return Object.assign(keep, order);
   }
 
@@ -530,7 +532,7 @@ class Service {
   // Чий запис у ручному наборі відповідає кожному рядку (it.order) — щоб повторна вставка того самого діапазону
   // не подвоювала записи: рядок з номером — запис із тим самим номером (повтори номера — за порядком), рядок без
   // номера — запис без номера з тим самим працівником і товаром. Запис, уже взятий іншим рядком, не береться.
-  // Чужий працівник — лише для записів, створених до 2026-11-19 (без pasted: працівника тоді міг дати кабінет).
+  // Неправильний рядок бере лише неправильний запис.
   matchPasted(items, index = this.orderIndex()) {
     const manual = this.data.orders.filter((o) => o.source === 'manual').sort((a, b) => a.id - b.id);
     const byNumber = new Map(), byProduct = new Map(), taken = new Set();
@@ -538,16 +540,21 @@ class Service {
     const push = (map, k, o) => { if (!map.has(k)) map.set(k, []); map.get(k).push(o); };
     for (const o of manual) {
       if (o.number) push(byNumber, o.number, o);
-      else if (!o.orderId) push(byProduct, productKey(o.employeeId, o.product), o);
+      else if (!o.orderId) push(byProduct, o.invalid ? `!|${o.product}` : productKey(o.employeeId, o.product), o);
     }
     const free = (list, ok = () => true) => (list || []).find((o) => !taken.has(o.id) && ok(o));
     for (const it of items) {
       let o = null;
-      if (it.reason) continue;
+      if (it.reason) { // неправильний рядок — лише свій же неправильний запис (за номером або текстом рядка)
+        o = it.number ? free(byNumber.get(it.number), (x) => x.invalid) : free(byProduct.get(`!|${it.line}`));
+        if (o) taken.add(o.id);
+        it.order = o;
+        continue;
+      }
       const mine = (x) => it.employeeId == null || x.employeeId === it.employeeId;
       if (it.number) {
         const list = byNumber.get(it.number);
-        o = free(list, mine) || free(list, (x) => !x.pasted);
+        o = free(list, mine) || free(list);
         if (!o) { const f = this.findExisting(it.employeeId, it.number, { source: 'manual', index }); if (f && !taken.has(f.id)) o = f; }
       }
       if (!o && it.employeeId != null) o = free(byProduct.get(productKey(it.employeeId, it.product))); // і рядок, якому дописали ТТН
@@ -557,11 +564,15 @@ class Service {
     return items;
   }
 
-  // Місяць вкладки таблиці, з якої вставлено: найчастіший місяць дат пакування. Без дат — '' (місяць за датою замовлення, як раніше).
+  // Місяць вкладки таблиці, з якої вставлено: найчастіший місяць дат пакування; без дат (скопійовано лише «товар, ТТН») —
+  // найчастіший місяць наявних записів цих рядків; інакше '' (місяць за датою замовлення).
   pastedMonth(items) {
-    const count = new Map();
-    for (const it of items) { const m = it.packDate.slice(0, 7); if (m) count.set(m, (count.get(m) || 0) + 1); }
-    return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    const top = (months) => {
+      const count = new Map();
+      for (const m of months) if (m) count.set(m, (count.get(m) || 0) + 1);
+      return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    };
+    return top(items.map((it) => it.packDate.slice(0, 7))) || top(items.map((it) => it.order && lib.orderMonth(it.order)));
   }
 
   // Звірка для відповіді: total = counted + skipped.length; rows — сітка для вікна (рядок як у вставленому плюс
@@ -570,17 +581,18 @@ class Service {
   pastedReport(items, orderOf, month) {
     if (!items.length) throw new ApiError(400, 'Порожній текст');
     const rows = items.map((it) => {
-      const o = it.reason ? null : orderOf(it);
+      const o = orderOf(it);
       const owner = it.employee || (o && (this.resolveEmployee(o.employeeId) || {}).name) || '';
       // працівник рядка без імені до запису — лише припущення з бази: остаточно його визначить кабінет
-      return { row: it.row, cells: it.cells, number: it.number, dupOf: it.dupOf, state: it.reason ? 'skip' : it.outcome || (it.order ? 'existing' : 'new'), reason: it.reason || '',
+      return { row: it.row, cells: it.cells, number: it.number, dupOf: it.dupOf, state: it.outcome || (it.order ? 'existing' : 'new'), reason: it.reason || '',
         employee: owner, employeeGuess: !it.employee && !it.outcome && !!owner, amount: o ? o.amount : null, status: o ? o.status : (it.number ? '' : 'nodata'),
         statusLabel: o ? lib.statusLabel(o.status, o.track) : (it.number ? '' : lib.STATUS.nodata) };
     });
     const count = (state) => rows.filter((r) => r.state === state).length;
-    const skipped = items.filter((it) => it.reason).map((it) => Object.assign({ row: it.row, line: it.line, reason: it.reason }, it.number ? { number: it.number } : {}));
-    return { total: rows.length, counted: rows.length - skipped.length, month, new: count('new'), existing: count('existing'),
-      added: count('added'), updated: count('updated'), unchanged: count('unchanged'), duplicates: items.filter((it) => it.dupOf).length, skipped, rows };
+    // invalid — неправильні рядки: теж записуються (з позначкою), тож counted = total
+    const invalid = items.filter((it) => it.reason).map((it) => Object.assign({ row: it.row, line: it.line, reason: it.reason }, it.number ? { number: it.number } : {}));
+    return { total: rows.length, counted: rows.length, month, new: count('new'), existing: count('existing'),
+      added: count('added'), updated: count('updated'), unchanged: count('unchanged'), duplicates: items.filter((it) => it.dupOf).length, invalid, rows };
   }
 
   // Попередній перегляд без запису й без запитів у мережу: що розпізнано в кожному рядку і чи є вже такий запис.
@@ -589,7 +601,7 @@ class Service {
     const index = this.orderIndex(); // сотні рядків × тисячі замовлень: без індексу вікно завмирало б на секунди
     const items = this.matchPasted(this.parsePasted(input, employee), index);
     const month = input && input.month != null ? (isMonth(input.month) ? input.month : '') : this.pastedMonth(items);
-    return this.pastedReport(items, (it) => it.order || (it.number ? this.findExisting(null, it.number, { source: 'auto', index }) : null), month);
+    return this.pastedReport(items, (it) => it.order || (it.number && !it.reason ? this.findExisting(null, it.number, { source: 'auto', index }) : null), month);
   }
 
   // Записати вставлене: кожен рядок — свій запис у ручному наборі (month — місяць вкладки). Не записується лише рядок,
@@ -602,25 +614,26 @@ class Service {
     const firstId = new Map();
     for (const o of this.data.orders) if (o.source === 'manual' && o.number && !(firstId.get(o.number) < o.id)) firstId.set(o.number, o.id);
     const dupOf = (o, number) => { const f = number && firstId.get(number); return f && f !== o.id ? f : 0; };
-    const numbers = [...new Set(items.filter((it) => !it.reason).map((it) => it.number).filter(Boolean))];
+    const numbers = [...new Set(items.map((it) => it.number).filter(Boolean))];
     const { results, errors } = numbers.length ? await this.trackNumbers(numbers) : { results: new Map(), errors: [] };
     const res = { notFound: [], noAmount: [], errors };
     for (const it of items) {
-      if (it.reason) continue;
       const t = it.number ? results.get(it.number) : null;
-      const empId = it.employeeId != null ? it.employeeId : it.order ? it.order.employeeId : t ? this.ownerOf(it.number, t, 'manual') : null;
-      if (empId == null) { it.reason = SKIP.noEmployee; continue; }
+      const empId = it.reason ? null : it.employeeId != null ? it.employeeId : it.order ? it.order.employeeId : t ? this.ownerOf(it.number, t, 'manual') : null;
+      if (empId == null && !it.reason) it.reason = SKIP.noEmployee;
+      // Неправильний рядок теж записується (власник 2026-11-19: «не прибирати, а так і написати»): без працівника, «Немає даних».
+      const invalid = it.reason || '';
       let o = it.order;
       if (o) {
-        const before = JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel]);
-        Object.assign(o, { employeeId: empId, month: month || o.month, pasted: true, dup: dupOf(o, o.number) });
+        const before = JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid]);
+        Object.assign(o, { employeeId: empId, month: month || o.month, pasted: true, dup: dupOf(o, o.number), invalid });
         if (!o.product && it.product) o.product = it.product;
         if (t) this.applyTracking(o, t);
         if (o.dup) o.amount = 0;
-        it.outcome = before === JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel]) ? 'unchanged' : 'updated';
+        it.outcome = before === JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid]) ? 'unchanged' : 'updated';
       } else {
-        o = this.normalizeOrder({ employeeId: empId, number: it.number, source: 'manual', product: it.product || (t && t.product), channel: t && t.channel,
-          status: t ? t.status : 'nodata', amount: 0, date: (t && t.date) || it.packDate || todayLocal(), month, pasted: true });
+        o = this.normalizeOrder({ employeeId: empId, number: it.number, source: 'manual', product: invalid && !it.number ? it.line : it.product || (t && t.product), channel: t && t.channel,
+          status: t ? t.status : 'nodata', amount: 0, date: (t && t.date) || it.packDate || todayLocal(), month, pasted: true, invalid });
         o.id = this.store.nextId();
         o.dup = dupOf(o, o.number);
         if (o.number && !firstId.has(o.number)) firstId.set(o.number, o.id);
@@ -796,7 +809,7 @@ class Service {
     this.data.settings = settings;
     this.data.employees = d.employees.map((e) => ({ id: Number(e.id), name: String(e.name || '').trim(), ratePercent: e.ratePercent == null ? null : Number(e.ratePercent) })).filter((e) => e.id && e.name);
     const ids = new Set(this.data.employees.map((e) => e.id));
-    this.data.orders = d.orders.filter((o) => ids.has(Number(o.employeeId))).map((o) => this.normalizeOrder(Object.assign({ source: 'auto' }, o))).map((o) => (o.id ? o : Object.assign(o, { id: this.store.nextId() })));
+    this.data.orders = d.orders.filter((o) => ids.has(Number(o.employeeId)) || (o.invalid && o.employeeId == null)).map((o) => this.normalizeOrder(Object.assign({ source: 'auto' }, o))).map((o) => (o.id ? o : Object.assign(o, { id: this.store.nextId() })));
     const maxId = Math.max(999, ...this.data.employees.map((e) => e.id), ...this.data.orders.map((o) => o.id));
     if (this.data.nextId <= maxId) this.data.nextId = maxId + 1;
     this.migrateNumbers();

@@ -15,6 +15,7 @@ const numCells = (o) => `<td class="nowrap">${copyCell(o.number, 'ТТН')}</td>
 const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
 const RD_ERROR = /^HTTP|з’єднання|не знайдено/;
 function statusDetail(track, order) {
+  if (order && order.invalid) return `Неправильний рядок: ${order.invalid}`;
   if (order && !order.number && !order.orderId) return 'Немає ТТН чи номера замовлення';
   if (order && order.dup) return 'Дубль ТТН у таблиці — сума врахована в першому рядку';
   if (!track) return '';
@@ -397,21 +398,21 @@ function bind() {
     const cols = Math.max(1, ...r.rows.map((x) => x.cells.length));
     $('#pasteGrid thead').innerHTML = `<tr><th class="num">№</th>${Array.from({ length: cols }, (_, i) => `<th>${colName(i)}</th>`).join('')}<th class="calc">Номер ТТН</th><th class="calc">Працівник</th><th class="calc num">Сума</th><th class="calc">Стан</th></tr>`;
     $('#pasteGrid tbody').innerHTML = r.rows.map((x) => {
-      const bad = x.state === 'skip';
+      const bad = !!x.reason; // неправильний рядок: запишеться з позначкою
       const who = x.employee ? esc(x.employee) + (x.employeeGuess ? ' <span class="muted" title="Так записано в базі; остаточно визначить кабінет">(з бази)</span>' : '')
         : (bad ? '' : '<span class="muted">визначить кабінет</span>');
       const status = x.status ? ' · ' + badge(x.status, x.statusLabel) : '';
       return `<tr class="${bad ? 'bad' : ''}"><td class="num">${x.row}</td>${Array.from({ length: cols }, (_, i) => `<td class="cell">${esc(x.cells[i] || '')}</td>`).join('')}
         <td class="calc nowrap">${esc(x.number)}</td><td class="calc">${who}</td><td class="calc num">${x.amount == null ? '—' : fmt(x.amount)}</td>
-        <td class="calc">${bad ? esc(x.reason) : PASTE_STATE[x.state] + status + (x.dupOf ? ` · <span class="muted">дубль рядка ${x.dupOf}</span>` : '') + (x.number ? '' : ' · <span class="muted">немає ТТН</span>')}</td></tr>`;
+        <td class="calc">${PASTE_STATE[x.state] + (bad ? ` · <b>неправильний: ${esc(x.reason)}</b>` : '') + status + (x.dupOf ? ` · <span class="muted">дубль рядка ${x.dupOf}</span>` : '') + (x.number ? '' : ' · <span class="muted">немає ТТН</span>')}</td></tr>`;
     }).join('');
     // рядків у буфері N → записів N: кожен рядок — свій запис; не записується лише рядок без працівника
     const counted = done ? `записано ${r.counted} (додано ${r.added}, оновлено ${r.updated}, без змін ${r.unchanged})` : `буде записано ${r.counted} (нових ${r.new}, уже в базі ${r.existing})`;
-    $('#pasteTotals').textContent = `Рядків у буфері ${r.total} → ${counted}` + (r.duplicates ? ` · дублів ТТН ${r.duplicates}` : '') + (r.total > r.counted ? ` · не записано ${r.total - r.counted}` : '');
+    $('#pasteTotals').textContent = `Рядків у буфері ${r.total} → ${counted}` + (r.duplicates ? ` · дублів ТТН ${r.duplicates}` : '') + (r.invalid.length ? ` · з них неправильних ${r.invalid.length}` : '');
     const ms = [...new Set([r.month, ...months()])].filter(Boolean).sort().reverse();
     $('#pasteMonth').innerHTML = '<option value="">за датою замовлення</option>' + ms.map((m) => `<option value="${m}">${monthLabel(m)}</option>`).join('');
     $('#pasteMonth').value = r.month; $('#pasteMonth').disabled = done;
-    $('#pasteOnlyBad').checked = false; $('#pasteOnlyBad').parentElement.classList.toggle('hidden', r.total === r.counted);
+    $('#pasteOnlyBad').checked = false; $('#pasteOnlyBad').parentElement.classList.toggle('hidden', !r.invalid.length);
     $('#pastePreview .sheet').classList.remove('only-bad');
     $('#pasteCount').classList.toggle('hidden', done || !r.counted);
     $('#pasteCancel').textContent = done ? 'Закрити' : 'Скасувати';
@@ -423,7 +424,7 @@ function bind() {
     closePastePreview();
     try {
       renderPasteGrid(await window.api.importPaste(Object.assign({ preview: true }, pastePayload(), { month: undefined })), false);
-      pasteStatus('Перевірте, що розпізнано, і місяць вкладки таблиці. Кожен рядок стане окремим записом; червоні (без працівника) не запишуться. У базу нічого не записано, доки не натиснете «Порахувати».');
+      pasteStatus('Перевірте, що розпізнано, і місяць вкладки таблиці. Кожен рядок стане окремим записом; червоні запишуться з позначкою «Неправильний рядок». У базу нічого не записано, доки не натиснете «Порахувати».');
     } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
   };
   $('#pasteText').addEventListener('paste', (e) => {

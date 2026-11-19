@@ -136,6 +136,7 @@ const RD_ERROR = /^HTTP|з’єднання|не знайдено/; // Rozetka D
 const NO_NUMBER = 'Немає ТТН чи номера замовлення';
 const DUP = 'Дубль ТТН у таблиці — сума врахована в першому рядку';
 function statusDetail(track, order) {
+  if (order && order.invalid) return `Неправильний рядок: ${order.invalid}`;
   if (order && !order.number && !order.orderId) return NO_NUMBER;
   if (order && order.dup) return DUP;
   if (!track) return '';
