@@ -391,7 +391,10 @@ function bind() {
   // З буфера береться text/html (таблиця Google Таблиць чи Excel: клітинка = клітинка), текст — запасний варіант.
   const pasteStatus = (msg, cls) => { const el = $('#pasteStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
   let pasteHtml = ''; // таблиця з останньої вставки; будь-яка правка поля руками її скидає і закриває перегляд
-  const pastePayload = () => ({ text: $('#pasteText').value, html: pasteHtml, month: $('#pasteMonth').value });
+  // Текст з буфера як є: поле введення замінює самотній \r у клітинці («товар \r») на перенос рядка, і рядок таблиці
+  // розривався на два (уламок «Саперний мультитул золотий» без ТТН, 2026-11-19). Значення поля — лише після правки руками.
+  let pasteRaw = null;
+  const pastePayload = () => ({ text: pasteRaw != null ? pasteRaw : $('#pasteText').value, html: pasteHtml, month: $('#pasteMonth').value });
   const PASTE_STATE = { new: 'буде додано', existing: 'уже в базі — оновиться', added: 'додано', updated: 'оновлено', unchanged: 'без змін' };
   const colName = (i) => (i < 26 ? '' : String.fromCharCode(64 + Math.floor(i / 26))) + String.fromCharCode(65 + (i % 26));
   const renderPasteGrid = (r, done) => {
@@ -430,10 +433,11 @@ function bind() {
   $('#pasteText').addEventListener('paste', (e) => {
     const html = e.clipboardData.getData('text/html');
     pasteHtml = /<table\b/i.test(html) ? html : '';
-    if (pasteHtml) { e.preventDefault(); $('#pasteText').value = e.clipboardData.getData('text/plain'); } // вставлене замінює поле: перегляд показує саме цю таблицю
+    pasteRaw = e.clipboardData.getData('text/plain');
+    e.preventDefault(); $('#pasteText').value = pasteRaw; // вставлене замінює поле: перегляд показує саме цю вставку
     setTimeout(previewPaste, 0);
   });
-  $('#pasteText').addEventListener('input', () => { pasteHtml = ''; closePastePreview(); }); // текст правили руками — таблиця з буфера вже не про нього
+  $('#pasteText').addEventListener('input', () => { pasteHtml = ''; pasteRaw = null; closePastePreview(); }); // текст правили руками — таблиця з буфера вже не про нього
   $('#pasteBtn').addEventListener('click', previewPaste);
   $('#pasteOnlyBad').addEventListener('change', (e) => $('#pastePreview .sheet').classList.toggle('only-bad', e.target.checked));
   const pasteBusy = (on) => { for (const id of ['#pasteCount', '#pasteText', '#pasteBtn', '#pasteCancel', '#pasteMonth']) $(id).disabled = on; }; // під час підрахунку нова вставка неможлива
@@ -448,7 +452,7 @@ function bind() {
       if (r.noAmount.length) parts.push(`Без суми: ${r.noAmount.length}.`);
       if (r.errors.length) parts.push(`Помилки кабінетів: ${r.errors.join('; ')}.`);
       pasteStatus(parts.join(' '), r.counted ? 'ok' : 'err');
-      pasteHtml = '';
+      pasteHtml = ''; pasteRaw = null;
       if (r.counted) $('#pasteText').value = '';
       reload(r.data);
     } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
