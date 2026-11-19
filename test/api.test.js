@@ -533,3 +533,25 @@ test('вставка вкладки таблиці (живий формат ко
     assert.strictEqual(lib.calcSalary(t.service.data, '2026-09', 'manual').reduce((n, x) => n + x.total, 0), 4);
   } finally { await t.cleanup(); }
 });
+
+test('експорт XLSX: аркуші «Усі замовлення», «Відміни», «Виконані», «Немає даних», «Більше 5000 грн»', async () => {
+  const t = await setup();
+  try {
+    const emp = t.service.data.employees[0].id;
+    const o = (id, status, amount) => ({ id, employeeId: emp, number: 'N' + id, orderId: '', kind: '', source: 'manual', amount, status, date: '2026-10-0' + id, channel: '', product: 'т' + id, track: null });
+    t.service.data.orders.push(o(1, 'ok', 6000), o(2, 'refused', 100), o(3, 'cancelled', 7000), o(4, 'nodata', 0), o(5, 'checking', 50), o(6, 'ok', 5000));
+    const sheets = t.service.orderSheets(t.service.listOrders({ source: 'manual' }));
+    const ids = (rows) => rows.slice(1).map((r) => r[3]);
+    assert.deepStrictEqual(sheets.map((s) => [s.name, ids(s.rows)]), [
+      ['Усі замовлення', ['N6', 'N1', 'N4', 'N5', 'N2', 'N3']],
+      ['Відміни', ['N2', 'N3']],
+      ['Виконані', ['N6', 'N1']],
+      ['Немає даних', ['N4']],
+      ['Більше 5000 грн', ['N1', 'N3']], // рівно 5000 — не більше
+    ]);
+    const r = await t.call('GET', '/api/orders?source=manual&format=xlsx');
+    assert.strictEqual(r.body.readUInt32LE(0), 0x04034b50);
+    const e = t.service.exportBuffer('xlsx', '2026-10', 'manual');
+    assert.strictEqual(e.buffer.readUInt32LE(0), 0x04034b50);
+  } finally { await t.cleanup(); }
+});

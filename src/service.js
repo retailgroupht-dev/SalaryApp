@@ -772,14 +772,28 @@ class Service {
   }
 
   // Список замовлень (набір + фільтри, як у вкладці) одним аркушем.
-  exportOrdersBuffer(format, filters = {}) {
+  // Аркуші замовлень для XLSX (власник 2026-11-19): усі, відміни (відмова, повернення, скасовано), виконані, немає даних,
+  // понад 5000 грн (будь-який статус). Порядок рядків — lib.orderCompare. rows — перший аркуш (усі): він же й CSV.
+  orderSheets(orders) {
     const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
-    const orders = this.listOrders(filters).sort(lib.orderCompare((id) => byId.get(id)));
-    const rows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
+    const sorted = [...orders].sort(lib.orderCompare((id) => byId.get(id)));
+    const table = (list) => [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
+      ...list.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
+    return [
+      { name: 'Усі замовлення', rows: table(sorted) },
+      { name: 'Відміни', rows: table(sorted.filter((o) => o.status === 'refused' || o.status === 'cancelled')) },
+      { name: 'Виконані', rows: table(sorted.filter((o) => o.status === 'ok')) },
+      { name: 'Немає даних', rows: table(sorted.filter((o) => o.status === 'nodata')) },
+      { name: 'Більше 5000 грн', rows: table(sorted.filter((o) => Number(o.amount) > 5000)) },
+    ];
+  }
+
+  exportOrdersBuffer(format, filters = {}) {
+    const orders = this.listOrders(filters);
+    const sheets = this.orderSheets(orders), rows = sheets[0].rows;
     const source = filters.source ? (filters.source === 'auto' ? 'авто' : 'таблиця') : 'усі';
     const filename = `замовлення-${source}-${filters.period || 'увесь-час'}.${format}`;
-    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Замовлення', rows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', count: orders.length };
+    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx(sheets), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', count: orders.length };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv(rows), 'utf8'), contentType: 'text/csv; charset=utf-8', count: orders.length };
     throw new ApiError(400, 'Формат має бути xlsx або csv');
   }
@@ -790,12 +804,9 @@ class Service {
     const head = ['Працівник', 'Ставка, %', 'Замовлень', 'Виконано', 'Відмови', 'Скасовано', 'Немає даних', lib.CHECKING_GROUP, 'Сума виконаних', 'Зарплата'];
     const sRows = [head, ...summary.map((s) => [s.name, s.ratePercent, s.total, s.done, s.refused, s.cancelled, s.nodata, s.checking, s.sumDone, s.salary])];
     sRows.push(['Разом', '', totals.total, totals.done, '', '', '', '', totals.sumDone, totals.salary]);
-    const byId = new Map(this.data.employees.map((e) => [e.id, e.name]));
-    const orders = this.listOrders({ period, source }).sort(lib.orderCompare((id) => byId.get(id)));
-    const oRows = [['Дата', 'Працівник', 'Товар', 'ТТН', '№ замовлення', 'Сума', 'Канал', 'Статус', 'Деталі'],
-      ...orders.map((o) => [o.date, byId.get(o.employeeId) || '', o.product, o.number, o.orderId || '', o.amount, o.channel, lib.statusLabel(o.status, o.track), lib.statusDetail(o.track, o)])];
+    const sheets = this.orderSheets(this.listOrders({ period, source })), oRows = sheets[0].rows;
     const filename = `зарплата-${source === 'auto' ? 'авто' : 'таблиця'}-${period || 'увесь-час'}.${format}`;
-    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, { name: 'Замовлення', rows: oRows }]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+    if (format === 'xlsx') return { filename, buffer: lib.buildXlsx([{ name: 'Зарплата', rows: sRows }, ...sheets]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     if (format === 'csv') return { filename, buffer: Buffer.from(lib.toCsv([...sRows, [], ...oRows]), 'utf8'), contentType: 'text/csv; charset=utf-8' };
     throw new ApiError(400, 'Формат має бути xlsx або csv');
   }
