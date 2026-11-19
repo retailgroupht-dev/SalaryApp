@@ -16,6 +16,7 @@ const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: '
 const RD_ERROR = /^HTTP|з’єднання|не знайдено/;
 function statusDetail(track, order) {
   if (order && !order.number && !order.orderId) return 'Немає ТТН чи номера замовлення';
+  if (order && order.dup) return 'Дубль ТТН у таблиці — сума врахована в першому рядку';
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;
   if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
@@ -23,7 +24,7 @@ function statusDetail(track, order) {
   if (mp && mp.status) return `${mp.channel || mp.kind}: ${mp.status}`;
   if (rd && rd.status) return `Rozetka Delivery: ${rd.status}`;
   if (np && np.status) return `Нова Пошта: ${np.status}`;
-  return '';
+  return order && order.status === 'nodata' && track.checked ? 'Номер ніде не знайдено' : '';
 }
 // Як lib.statusLabel: «Перевіряється» — лише поки ніхто не відповів, інакше «В дорозі» (перевізник) або «В обробці» (маркетплейс).
 const CHECKING_GROUP = 'В дорозі / в обробці';
@@ -48,6 +49,7 @@ const fmt = (n) => (Number(n) || 0).toLocaleString('uk-UA', { minimumFractionDig
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const monthOf = (d) => (d || '').slice(0, 7);
+const orderMonth = (o) => o.month || monthOf(o.date); // як lib.orderMonth: вставлене — місяць вкладки таблиці
 const monthLabel = (m) => {
   const names = ['січень', 'лютий', 'березень', 'квітень', 'травень', 'червень', 'липень', 'серпень', 'вересень', 'жовтень', 'листопад', 'грудень'];
   const [y, mm] = m.split('-');
@@ -56,7 +58,7 @@ const monthLabel = (m) => {
 const empName = (id) => (data.employees.find((e) => e.id === id) || {}).name || '—';
 
 function months() {
-  const set = new Set(data.orders.map((o) => monthOf(o.date)).filter(Boolean));
+  const set = new Set(data.orders.map(orderMonth).filter(Boolean));
   set.add(monthOf(today()));
   return [...set].sort().reverse();
 }
@@ -79,7 +81,7 @@ function calcRows(period) {
   const rate = Number(data.settings.ratePercent) || 0;
   return data.employees.map((e) => {
     const r = e.ratePercent == null || e.ratePercent === '' ? rate : Number(e.ratePercent);
-    const orders = data.orders.filter((o) => o.employeeId === e.id && o.source === state.salarySource && (!period || monthOf(o.date) === period));
+    const orders = data.orders.filter((o) => o.employeeId === e.id && o.source === state.salarySource && (!period || orderMonth(o) === period));
     const cnt = (s) => orders.filter((o) => o.status === s).length;
     const sumDone = orders.filter((o) => o.status === 'ok').reduce((a, o) => a + (Number(o.amount) || 0), 0);
     const round2 = (n) => Math.round(n * 100) / 100;
@@ -108,7 +110,7 @@ function renderSalaryDetail() {
   const id = state.detailEmployee;
   if (!id || !data.employees.some((e) => e.id === id)) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const orders = data.orders.filter((o) => o.employeeId === id && o.source === state.salarySource && (!state.salaryPeriod || monthOf(o.date) === state.salaryPeriod))
+  const orders = data.orders.filter((o) => o.employeeId === id && o.source === state.salarySource && (!state.salaryPeriod || orderMonth(o) === state.salaryPeriod))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#salaryDetailTitle').textContent = `${empName(id)} — ${state.salaryPeriod ? monthLabel(state.salaryPeriod) : 'увесь час'}, ${SOURCE[state.salarySource]} (${orders.length})`;
   box.querySelector('tbody').innerHTML = orders.map((o) => `<tr><td class="nowrap">${o.date}</td><td class="product"><div class="clip" title="${esc(o.product)}">${esc(o.product)}</div></td>${numCells(o)}
@@ -126,7 +128,7 @@ function renderOrders() {
   if (fStatus.options.length === 1) fStatus.innerHTML += Object.entries(Object.assign({}, STATUS, { checking: CHECKING_GROUP })).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
   $('#ordersTitle').textContent = `Замовлення: ${SOURCE[state.ordersSource]}`;
   const emp = Number($('#fEmployee').value) || null, period = fPeriodSel.value, st = fStatus.value, q = $('#fSearch').value.trim().toLowerCase();
-  const list = data.orders.filter((o) => o.source === state.ordersSource && (!emp || o.employeeId === emp) && (!period || monthOf(o.date) === period) && (!st || o.status === st)
+  const list = data.orders.filter((o) => o.source === state.ordersSource && (!emp || o.employeeId === emp) && (!period || orderMonth(o) === period) && (!st || o.status === st)
     && (!q || (o.product || '').toLowerCase().includes(q) || (o.number || '').toLowerCase().includes(q) || (o.orderId || '').toLowerCase().includes(q)))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   $('#ordersTable tbody').innerHTML = list.slice(0, 2000).map((o) => `<tr data-id="${o.id}">
@@ -388,8 +390,8 @@ function bind() {
   // З буфера береться text/html (таблиця Google Таблиць чи Excel: клітинка = клітинка), текст — запасний варіант.
   const pasteStatus = (msg, cls) => { const el = $('#pasteStatus'); el.textContent = msg; el.className = 'status ' + (cls || ''); };
   let pasteHtml = ''; // таблиця з останньої вставки; будь-яка правка поля руками її скидає і закриває перегляд
-  const pastePayload = () => ({ text: $('#pasteText').value, html: pasteHtml });
-  const PASTE_STATE = { ok: 'буде пораховано', added: 'додано', updated: 'оновлено', unchanged: 'без змін' };
+  const pastePayload = () => ({ text: $('#pasteText').value, html: pasteHtml, month: $('#pasteMonth').value });
+  const PASTE_STATE = { new: 'буде додано', existing: 'уже в базі — оновиться', added: 'додано', updated: 'оновлено', unchanged: 'без змін' };
   const colName = (i) => (i < 26 ? '' : String.fromCharCode(64 + Math.floor(i / 26))) + String.fromCharCode(65 + (i % 26));
   const renderPasteGrid = (r, done) => {
     const cols = Math.max(1, ...r.rows.map((x) => x.cells.length));
@@ -401,10 +403,14 @@ function bind() {
       const status = x.status ? ' · ' + badge(x.status, x.statusLabel) : '';
       return `<tr class="${bad ? 'bad' : ''}"><td class="num">${x.row}</td>${Array.from({ length: cols }, (_, i) => `<td class="cell">${esc(x.cells[i] || '')}</td>`).join('')}
         <td class="calc nowrap">${esc(x.number)}</td><td class="calc">${who}</td><td class="calc num">${x.amount == null ? '—' : fmt(x.amount)}</td>
-        <td class="calc">${bad ? esc(x.reason) : PASTE_STATE[x.state] + status}</td></tr>`;
+        <td class="calc">${bad ? esc(x.reason) : PASTE_STATE[x.state] + status + (x.dupOf ? ` · <span class="muted">дубль рядка ${x.dupOf}</span>` : '') + (x.number ? '' : ' · <span class="muted">немає ТТН</span>')}</td></tr>`;
     }).join('');
-    const counted = done ? `пораховано ${r.counted} (додано ${r.added}, оновлено ${r.updated}, без змін ${r.unchanged})` : `буде пораховано ${r.counted}`;
-    $('#pasteTotals').textContent = `Вставлено ${r.total} · ${counted} · не пораховано ${r.total - r.counted}`;
+    // рядків у буфері N → записів N: кожен рядок — свій запис; не записується лише рядок без працівника
+    const counted = done ? `записано ${r.counted} (додано ${r.added}, оновлено ${r.updated}, без змін ${r.unchanged})` : `буде записано ${r.counted} (нових ${r.new}, уже в базі ${r.existing})`;
+    $('#pasteTotals').textContent = `Рядків у буфері ${r.total} → ${counted}` + (r.duplicates ? ` · дублів ТТН ${r.duplicates}` : '') + (r.total > r.counted ? ` · не записано ${r.total - r.counted}` : '');
+    const ms = [...new Set([r.month, ...months()])].filter(Boolean).sort().reverse();
+    $('#pasteMonth').innerHTML = '<option value="">за датою замовлення</option>' + ms.map((m) => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+    $('#pasteMonth').value = r.month; $('#pasteMonth').disabled = done;
     $('#pasteOnlyBad').checked = false; $('#pasteOnlyBad').parentElement.classList.toggle('hidden', r.total === r.counted);
     $('#pastePreview .sheet').classList.remove('only-bad');
     $('#pasteCount').classList.toggle('hidden', done || !r.counted);
@@ -416,8 +422,8 @@ function bind() {
     if (!$('#pasteText').value.trim() && !pasteHtml) return pasteStatus('Вставте клітинки з таблиці', 'err');
     closePastePreview();
     try {
-      renderPasteGrid(await window.api.importPaste(Object.assign({ preview: true }, pastePayload())), false);
-      pasteStatus('Перевірте, що розпізнано. Червоні рядки не порахуються. У базу нічого не записано, доки не натиснете «Порахувати».');
+      renderPasteGrid(await window.api.importPaste(Object.assign({ preview: true }, pastePayload(), { month: undefined })), false);
+      pasteStatus('Перевірте, що розпізнано, і місяць вкладки таблиці. Кожен рядок стане окремим записом; червоні (без працівника) не запишуться. У базу нічого не записано, доки не натиснете «Порахувати».');
     } catch (e) { pasteStatus('Помилка: ' + errMsg(e), 'err'); }
   };
   $('#pasteText').addEventListener('paste', (e) => {
@@ -429,7 +435,7 @@ function bind() {
   $('#pasteText').addEventListener('input', () => { pasteHtml = ''; closePastePreview(); }); // текст правили руками — таблиця з буфера вже не про нього
   $('#pasteBtn').addEventListener('click', previewPaste);
   $('#pasteOnlyBad').addEventListener('change', (e) => $('#pastePreview .sheet').classList.toggle('only-bad', e.target.checked));
-  const pasteBusy = (on) => { for (const id of ['#pasteCount', '#pasteText', '#pasteBtn', '#pasteCancel']) $(id).disabled = on; }; // під час підрахунку нова вставка неможлива
+  const pasteBusy = (on) => { for (const id of ['#pasteCount', '#pasteText', '#pasteBtn', '#pasteCancel', '#pasteMonth']) $(id).disabled = on; }; // під час підрахунку нова вставка неможлива
   $('#pasteCancel').addEventListener('click', () => { closePastePreview(); pasteStatus(''); });
   $('#pasteCount').addEventListener('click', async () => {
     pasteStatus('Шукаю в Новій Пошті та на маркетплейсах… (для сотень рядків — кілька хвилин)'); pasteBusy(true);

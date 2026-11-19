@@ -112,6 +112,21 @@ function mergeOrders(existing, incoming, nextId) {
 
 // ---------- Розрахунок ----------
 function monthOf(date) { return (date || '').slice(0, 7); }
+// Місяць замовлення для розрахунку: вставлене з таблиці — місяць вкладки, з якої вставлено (order.month),
+// інакше — за датою. У вкладці жовтня бувають рядки з датою пакування 01.11 і продажі з вересня.
+function orderMonth(o) { return o.month || monthOf(o.date); }
+
+// Дата пакування з клітинки таблиці: «5.10», «13/10», «01.11», «5.10.2026» → 'YYYY-MM-DD', інакше ''.
+// Без року — найближча минула дата відносно today (у січні «28.12» — грудень минулого року).
+function sheetDate(cell, today = new Date()) {
+  const m = /^(\d{1,2})[./](\d{1,2})(?:[./](\d{2}|\d{4}))?$/.exec(String(cell || '').trim());
+  if (!m) return '';
+  const d = +m[1], mo = +m[2];
+  if (d < 1 || d > 31 || mo < 1 || mo > 12) return '';
+  let y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : today.getFullYear();
+  if (!m[3] && mo > today.getMonth() + 1) y--;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
 
 // Деталь статусу для таблиці: що саме сказав перевізник (Нова Пошта, Rozetka Delivery), інакше —
 // статус у кабінеті маркетплейсу. Довгі фрази НП скорочуються.
@@ -119,8 +134,10 @@ const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: '
 const RD_ERROR = /^HTTP|з’єднання|не знайдено/; // Rozetka Delivery не відповіла або посилки не знає
 // order (необов’язково): запис без ТТН і без № замовлення — перевіряти нема чого.
 const NO_NUMBER = 'Немає ТТН чи номера замовлення';
+const DUP = 'Дубль ТТН у таблиці — сума врахована в першому рядку';
 function statusDetail(track, order) {
   if (order && !order.number && !order.orderId) return NO_NUMBER;
+  if (order && order.dup) return DUP;
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;
   if (np && np.status && np.code !== '3') return `Нова Пошта: ${NP_SHORT[np.code] || np.status}${np.received ? ` (${np.received})` : ''}`;
@@ -128,7 +145,7 @@ function statusDetail(track, order) {
   if (mp && mp.status) return `${mp.channel || mp.kind}: ${mp.status}`;
   if (rd && rd.status) return `Rozetka Delivery: ${rd.status}`;
   if (np && np.status) return `Нова Пошта: ${np.status}`;
-  return '';
+  return order && order.status === 'nodata' && track.checked ? 'Номер ніде не знайдено' : '';
 }
 
 // Назва статусу для людини. «Перевіряється» (checking) — лише поки жодне джерело не відповіло; якщо відповідь
@@ -151,7 +168,7 @@ function calcSalary(data, period, source) {
   const rows = [];
   for (const e of data.employees) {
     const r = e.ratePercent == null || e.ratePercent === '' ? rate : Number(e.ratePercent);
-    const orders = data.orders.filter((o) => o.employeeId === e.id && (!period || monthOf(o.date) === period) && (!source || o.source === source));
+    const orders = data.orders.filter((o) => o.employeeId === e.id && (!period || orderMonth(o) === period) && (!source || o.source === source));
     const done = orders.filter((o) => o.status === 'ok');
     const sumDone = round2(done.reduce((s, o) => s + (Number(o.amount) || 0), 0));
     rows.push({
@@ -293,6 +310,6 @@ function buildXlsx(sheets) {
 
 module.exports = {
   STATUS, DEFAULT_EMPLOYEES,
-  SOURCE, statusDetail, statusLabel, CHECKING_GROUP, NO_NUMBER, splitPasted, htmlTable, toCsv, mergeOrders,
-  calcSalary, monthOf, round2, buildXlsx, crc32,
+  SOURCE, statusDetail, statusLabel, CHECKING_GROUP, NO_NUMBER, DUP, splitPasted, htmlTable, toCsv, mergeOrders,
+  calcSalary, monthOf, orderMonth, sheetDate, round2, buildXlsx, crc32,
 };

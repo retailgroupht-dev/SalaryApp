@@ -102,3 +102,16 @@ test('buildXlsx: коректний zip, читається sheet1.xml', () => {
   assert.strictEqual(lib.crc32(raw), crc);
   assert.ok(buf.toString('latin1').includes('xl/worksheets/sheet1.xml'));
 });
+
+test('sheetDate: дата пакування з клітинки таблиці', () => {
+  const nov = new Date(2026, 10, 19), jan = new Date(2027, 0, 5);
+  assert.strictEqual(lib.sheetDate('5.10', nov), '2026-10-05');
+  assert.strictEqual(lib.sheetDate('13/10', nov), '2026-10-13');
+  assert.strictEqual(lib.sheetDate('01.11', nov), '2026-11-01');
+  assert.strictEqual(lib.sheetDate('28.12', jan), '2026-12-28'); // у січні грудень — минулого року
+  assert.strictEqual(lib.sheetDate('5.10.2025', nov), '2025-10-05');
+  assert.strictEqual(lib.sheetDate('32.10', nov), '');
+  assert.strictEqual(lib.sheetDate('723-5328470', nov), '');
+  assert.strictEqual(lib.orderMonth({ month: '2026-10', date: '2026-11-01' }), '2026-10');
+  assert.strictEqual(lib.orderMonth({ month: '', date: '2026-11-01' }), '2026-11');
+});
