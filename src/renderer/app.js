@@ -38,12 +38,11 @@ function statusLabel(status, track) {
 // як lib.statusRank / lib.orderCompare
 function statusRank(o) {
   const t = o.track || {};
-  if (o.invalid) return 7;
   if (o.status === 'ok') return 0;
-  if (o.status === 'nodata') return t.np && t.np.code === '1' ? 5 : 1;
-  if (o.status === 'refused') return t.problem === 'ВОЗВРАТ' ? 3 : 2;
-  if (o.status === 'cancelled') return 4;
-  return 6;
+  if (o.status === 'nodata') return o.invalid ? 3 : t.np && t.np.code === '1' ? 2 : 1;
+  if (o.status === 'refused') return t.problem === 'ВОЗВРАТ' ? 6 : 5;
+  if (o.status === 'cancelled') return 7;
+  return 4; // checking: в дорозі / в обробці
 }
 const orderCompare = (a, b) => statusRank(a) - statusRank(b) || ((data.employees.find((e) => e.id === a.employeeId) || {}).name || '').localeCompare((data.employees.find((e) => e.id === b.employeeId) || {}).name || '', 'uk')
   || (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);

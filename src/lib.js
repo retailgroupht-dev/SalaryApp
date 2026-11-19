@@ -160,16 +160,16 @@ function statusLabel(status, track) {
   return t.mp ? 'В обробці' : STATUS.checking;
 }
 
-// Порядок у списках замовлень (власник 2026-11-19): виконані → немає даних → відмови → повернення → скасовані →
-// не відправлено (НП код 1) → у дорозі / в обробці → неправильні рядки; у групі — працівник за абеткою, далі новіші вище.
+// Порядок у списках замовлень за кольором статусу (власник 2026-11-19): зелені (виконано) → жовті (немає даних, далі
+// не відправлено — НП код 1, далі неправильні рядки) → сірі (у дорозі / в обробці) → червоні (відмова, повернення,
+// скасовано); у групі — працівник за абеткою, далі новіші вище.
 function statusRank(o) {
   const t = o.track || {};
-  if (o.invalid) return 7;
   if (o.status === 'ok') return 0;
-  if (o.status === 'nodata') return t.np && t.np.code === '1' ? 5 : 1;
-  if (o.status === 'refused') return t.problem === 'ВОЗВРАТ' ? 3 : 2;
-  if (o.status === 'cancelled') return 4;
-  return 6;
+  if (o.status === 'nodata') return o.invalid ? 3 : t.np && t.np.code === '1' ? 2 : 1;
+  if (o.status === 'refused') return t.problem === 'ВОЗВРАТ' ? 6 : 5;
+  if (o.status === 'cancelled') return 7;
+  return 4; // checking: в дорозі / в обробці
 }
 // nameOf(employeeId) → ім’я працівника.
 function orderCompare(nameOf) {

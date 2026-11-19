@@ -116,7 +116,7 @@ test('sheetDate: дата пакування з клітинки таблиці'
   assert.strictEqual(lib.orderMonth({ month: '', date: '2026-11-01' }), '2026-11');
 });
 
-test('порядок у списку: виконані (за працівником) → немає даних → відмови → повернення → скасовані → не відправлено → у дорозі → неправильні', () => {
+test('порядок у списку за кольором: зелені (за працівником) → жовті → сірі → червоні', () => {
   const names = { 1: 'Товкес', 2: 'Настя' };
   const o = (id, employeeId, status, track, extra) => Object.assign({ id, employeeId, status, date: '2026-10-0' + (id % 9 + 1), track }, extra || {});
   const list = [
@@ -130,5 +130,6 @@ test('порядок у списку: виконані (за працівник�
     o(8, 2, 'nodata', { np: { code: '3' } }),
     o(9, 2, 'ok', null),
   ];
-  assert.deepStrictEqual(list.sort(lib.orderCompare((id) => names[id])).map((x) => x.id), [9, 4, 8, 7, 3, 5, 2, 1, 6]);
+  // виконано Насті, Товкес → немає даних → не відправлено → неправильний → у дорозі → відмова → повернення → скасовано
+  assert.deepStrictEqual(list.sort(lib.orderCompare((id) => names[id])).map((x) => x.id), [9, 4, 8, 2, 6, 1, 7, 3, 5]);
 });
