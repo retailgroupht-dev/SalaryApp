@@ -225,6 +225,13 @@ test('зведення: пріоритети суми й статусу', () => 
   assert.strictEqual(c.status, 'checking');
   c = combine('n', null, Object.assign({}, mpRz, { done: true }), null);
   assert.strictEqual(c.status, 'ok');
+  // Нова Пошта остання: маркетплейс закрив замовлення — «Виконано», хоч НП ще показує «в дорозі»; відмова НП — усе одно відмова
+  assert.strictEqual(combine('n', npTransit, Object.assign({}, mpRz, { done: true }), null).status, 'ok');
+  assert.strictEqual(combine('n', npRefused, Object.assign({}, mpRz, { done: true }), null).status, 'refused');
+  // маркетплейс ще не закрив, а НП видала — «Виконано»; Rozetka Delivery «Доставлено» важливіша за НП у дорозі
+  assert.strictEqual(combine('n', npOk, Object.assign({}, mpRz, { done: false }), null).status, 'ok');
+  assert.strictEqual(combine('PRM-1', npTransit, null, { found: true, status: 'Доставлено', problem: '' }).status, 'ok');
+  assert.strictEqual(combine('n', npTransit, Object.assign({}, mpRz, { done: false }), null).status, 'checking');
 });
 
 test('НП код 1 (накладну створено, не відправлено) — одразу «Немає даних», але сума, дата й власник з НП лишаються', () => {

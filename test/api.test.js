@@ -181,7 +181,9 @@ test('API: Нова Пошта — додати за ТТН, оновити, п�
     NP_DOCS[20451521500117].StatusCode = '9';
     r = await t.call('POST', '/api/track/refresh', { status: 'checking' });
     assert.deepStrictEqual({ checked: r.body.checked, updated: r.body.updated }, { checked: 1, updated: 1 });
-    assert.strictEqual(r.body.changes[0].to.status, 'ok');
+    // отримано, але суми ніде немає (передплата на НП) — не «Виконано» з 0, а «Немає даних»: впишіть суму
+    assert.strictEqual(r.body.changes[0].to.status, 'nodata');
+    assert.match(require('../src/lib').statusDetail(inTransit.track, inTransit), /впишіть суму/);
     assert.strictEqual(inTransit.date, '2026-11-05');
     r = await t.call('POST', '/api/track/refresh', { ids: [inTransit.id], withDate: true });
     assert.strictEqual(inTransit.date, '2026-11-01');
@@ -554,4 +556,40 @@ test('експорт XLSX: аркуші «Усі замовлення», «Ві�
     const e = t.service.exportBuffer('xlsx', '2026-10', 'manual');
     assert.strictEqual(e.buffer.readUInt32LE(0), 0x04034b50);
   } finally { await t.cleanup(); }
+});
+
+test('Нова Пошта остання: передплата (сума 0) — «Немає даних» з оголошеною вартістю; сума з таблиці важливіша за НП', async () => {
+  const t = await setup();
+  try {
+    const lib = require('../src/lib');
+    // живий формат НП для ТТН без накладеного платежу (20451574699852, ключ відправника, перевірено 2026-11-21)
+    NP_DOCS[20451574699852] = { StatusCode: '9', Status: 'Відправлення отримано', DateCreated: '30-10-2026 12:00:00', RecipientDateTime: '01.11.2026 10:00:00',
+      CargoDescriptionString: 'Розетка', DocumentCost: '92.95', AnnouncedPrice: 590, PaymentMethod: 'Cash', PayerType: 'Recipient',
+      Redelivery: 0, RedeliverySum: '', AfterpaymentOnGoodsCost: 0, BackwardDeliveryMoneyCost: '' };
+    // рядок без суми: «Немає даних», сума не 0 у зарплату, у деталях — оголошена вартість
+    let r = await t.call('POST', '/api/import/paste', { rows: [['дубінка дешева', '20451574699852', 'Настя']] });
+    let o = t.service.data.orders.find((x) => x.number === '20451574699852');
+    assert.deepStrictEqual({ added: r.body.added, status: o.status, amount: o.amount, announced: o.track.np.announced }, { added: 1, status: 'nodata', amount: 0, announced: 590 });
+    assert.strictEqual(lib.statusDetail(o.track, o), 'Суми немає (НП: передплата) — впишіть суму; оголошена вартість НП 590 грн');
+    // та сама вставка з таблиці власника: «Сума» 0, поруч справжня ціна — береться ціна, статус «Виконано»
+    r = await t.call('POST', '/api/import/paste', { rows: [['2026-11-01', 'Настя', 'дубінка дешева', '20451574699852', '', '0', 'Виконано', '590']] });
+    o = t.service.data.orders.find((x) => x.number === '20451574699852');
+    assert.deepStrictEqual({ added: r.body.added, status: o.status, amount: o.amount, tableAmount: o.tableAmount }, { added: 0, status: 'ok', amount: 590, tableAmount: 590 });
+    // повторна перевірка НП суму з таблиці не затирає
+    await t.call('POST', '/api/track/refresh', { ids: [o.id] });
+    assert.deepStrictEqual({ status: o.status, amount: o.amount }, { status: 'ok', amount: 590 });
+    // сума з таблиці важливіша за суму НП (накладений платіж 278), а сума маркетплейсу — важливіша за таблицю (Prom: 300)
+    r = await t.call('POST', '/api/import/paste', { rows: [['щітка', '20451520852070', 'Настя', '999']] });
+    assert.strictEqual(t.service.data.orders.find((x) => x.number === '20451520852070').amount, 999);
+    await t.call('PUT', '/api/settings', { accounts: [{ kind: 'prom', name: 'Пром Насті', token: 'p', employeeId: t.service.resolveEmployee('Настя').id }] });
+    r = await t.call('POST', '/api/import/paste', { rows: [['щітка', '20451520852070', 'Настя', '999']] });
+    assert.strictEqual(t.service.data.orders.find((x) => x.number === '20451520852070').amount, 300);
+    // вписали суму у формі — знову «Виконано»
+    NP_DOCS[20451574744987] = Object.assign({}, NP_DOCS[20451574699852], { AnnouncedPrice: 3000 });
+    await t.call('POST', '/api/import/paste', { rows: [['штучка для газонокосарки', '20451574744987', 'Настя']] });
+    const g = t.service.data.orders.find((x) => x.number === '20451574744987');
+    assert.strictEqual(g.status, 'nodata');
+    t.service.upsertOrder(Object.assign({}, g, { amount: 3000 }));
+    assert.strictEqual(t.service.data.orders.find((x) => x.id === g.id).status, 'ok');
+  } finally { delete NP_DOCS[20451574699852]; delete NP_DOCS[20451574744987]; await t.cleanup(); }
 });

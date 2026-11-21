@@ -138,6 +138,10 @@ const DUP = 'Дубль ТТН у таблиці — сума врахована
 function statusDetail(track, order) {
   if (order && order.invalid) return `Неправильний рядок: ${order.invalid}`;
   if (order && !order.number && !order.orderId) return NO_NUMBER;
+  if (order && order.status === 'nodata' && track && track.noAmount) {
+    const announced = track.np && track.np.announced;
+    return `Суми немає (НП: передплата) — впишіть суму${announced ? `; оголошена вартість НП ${announced} грн` : ''}`;
+  }
   if (order && order.dup) return DUP;
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;

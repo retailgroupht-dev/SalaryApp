@@ -71,7 +71,8 @@ function mapDocument(d, account) {
     npStatus: String(d.Status || ''),
     npCode: code,
     reason: String(d.UndeliveryReasonsSubtypeDescription || ''),
-    amount: npAmount(d), // null = Нова Пошта суму не віддала (без ключа або передплата)
+    amount: npAmount(d), // null = Нова Пошта суму не віддала (без ключа або передплата: RedeliverySum "", AfterpaymentOnGoodsCost 0)
+    announced: num(d.AnnouncedPrice), // оголошена вартість (бачить лише ключ відправника; 20451574699852 → 590, перевірено 2026-11-21)
     dateCreated: parseNpDate(d.DateCreated),
     dateReceived: parseNpDate(d.RecipientDateTime),
     product: String(d.CargoDescriptionString || '').trim(),

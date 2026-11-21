@@ -17,6 +17,10 @@ const RD_ERROR = /^HTTP|з’єднання|не знайдено/;
 function statusDetail(track, order) {
   if (order && order.invalid) return `Неправильний рядок: ${order.invalid}`;
   if (order && !order.number && !order.orderId) return 'Немає ТТН чи номера замовлення';
+  if (order && order.status === 'nodata' && track && track.noAmount) {
+    const announced = track.np && track.np.announced;
+    return `Суми немає (НП: передплата) — впишіть суму${announced ? `; оголошена вартість НП ${announced} грн` : ''}`;
+  }
   if (order && order.dup) return 'Дубль ТТН у таблиці — сума врахована в першому рядку';
   if (!track) return '';
   const np = track.np, rd = track.rd, mp = track.mp;

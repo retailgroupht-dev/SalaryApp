@@ -74,15 +74,16 @@ function combine(number, npR, mpR, rdR) {
     if (hits.length) { problem = w; problemLabel = hits.map((h) => h.label).join(', '); break; }
   }
   const found = !!(mpR || npOk || rdOk);
-  // Виконано — лише коли перевізник підтвердив видачу (НП: отримано; Rozetka Delivery: доставлено/вручено).
-  // Без даних перевізника — за статусом маркетплейсу (done), а без нього — виконано.
+  // Нова Пошта — остання (власник 2026-11-21): «Виконано», якщо видачу підтвердив кабінет маркетплейсу, далі
+  // Rozetka Delivery, і лише потім НП; «в дорозі» НП не перебиває «Виконано» маркетплейсу. Відмова / повернення /
+  // скасування з будь-якого джерела, як і раніше, важливіші (інакше замовлення з відмовою на НП пішло б у зарплату).
+  const rdDelivered = rdOk && (String(rdR.code) === '60030' || /видан|доставлен|вручен|отриман|одержан|получен/i.test(rdR.status));
   let status;
   if (problem) status = STATUS_BY_PROBLEM[problem];
   else if (!found) status = 'nodata';
+  else if ((mpR && mpR.done) || rdDelivered || (npOk && npR.received)) status = 'ok';
   else if (npOk && npR.npCode === NOT_SENT_CODE) status = 'nodata';
-  else if (npOk) status = npR.received ? 'ok' : 'checking';
-  else if (rdOk) status = String(rdR.code) === '60030' || /видан|доставлен|вручен|отриман|одержан|получен/i.test(rdR.status) ? 'ok' : 'checking';
-  else if (mpR && mpR.done === false) status = 'checking';
+  else if (rdOk || npOk || (mpR && mpR.done === false)) status = 'checking';
   else status = 'ok';
 
   const amount = mpR && mpR.amount > 0 ? mpR.amount : (npOk && npR.amount != null ? npR.amount : null);
@@ -101,7 +102,8 @@ function combine(number, npR, mpR, rdR) {
     product: (mpR && mpR.product) || (npOk && npR.product) || '',
     dateReceived: npOk ? npR.dateReceived : '',
     note: (problem ? `${problem} (${problemLabel}); ` : '') + notes.join('; '),
-    np: npR ? { status: npR.npStatus, code: npR.npCode, reason: npR.reason, received: npR.dateReceived } : null,
+    // announced — оголошена вартість НП: як суму продажу не беремо (без рішення власника), лише показуємо в примітці
+    np: npR ? { status: npR.npStatus, code: npR.npCode, reason: npR.reason, received: npR.dateReceived, announced: npR.announced || null } : null,
     mp: mpR ? { kind: mpR.kind, channel: mpR.channel, orderId: mpR.orderId, status: mpR.status } : null,
     rd: rdR ? { status: rdR.status, code: rdR.code, date: rdR.date } : null,
   };

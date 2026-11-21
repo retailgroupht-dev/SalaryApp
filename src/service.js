@@ -46,6 +46,8 @@ class Service {
       if (!lib.SOURCE[o.source]) { o.source = 'auto'; changed = true; } // база до розділення на два набори
       // невідправлена накладна НП (код 1) раніше лишалась «Перевіряється», тепер — «Немає даних» (2026-11-18)
       if (o.status === 'checking' && o.track && o.track.np && o.track.np.code === '1') { o.status = 'nodata'; changed = true; }
+      // «Виконано» з сумою 0 (передплата НП, суми ніде немає) — «Немає даних», впишіть суму (2026-11-21)
+      if (o.status === 'ok' && !o.dup && !(Number(o.amount) > 0) && o.track) { o.status = 'nodata'; o.track.noAmount = true; changed = true; }
       // «Перевіряється» без ТТН і без № замовлення — перевіряти нема чого (2026-11-18)
       if (o.status === 'checking' && !o.number && !o.orderId) { o.status = 'nodata'; changed = true; }
     }
@@ -166,9 +168,10 @@ class Service {
       pasted: !!order.pasted, // запис рядка вставки з 2026-11-19 (matchPasted)
       dup: Number(order.dup) || 0, // повтор номера в таблиці: № першого рядка; сума рахується один раз
       invalid, // «Неправильний рядок: …» — рядок вставки без працівника; у зарплату не йде
+      tableAmount: Number(order.tableAmount) > 0 ? lib.round2(Number(order.tableAmount)) : 0, // сума з вставленої таблиці (важливіша за НП)
       track: order.track && typeof order.track === 'object'
         ? { checked: String(order.track.checked || ''), note: String(order.track.note || ''), problem: String(order.track.problem || ''),
-          np: order.track.np || null, mp: order.track.mp || null, rd: order.track.rd || null }
+          np: order.track.np || null, mp: order.track.mp || null, rd: order.track.rd || null, noAmount: !!order.track.noAmount }
         : null,
     };
   }
@@ -179,12 +182,14 @@ class Service {
     const old = order && order.id ? this.data.orders.find((x) => x.id === Number(order.id)) : null;
     if (!old) return order;
     const keep = {};
-    for (const k of ['month', 'pasted', 'dup', 'invalid']) if (order[k] === undefined) keep[k] = old[k];
+    for (const k of ['month', 'pasted', 'dup', 'invalid', 'tableAmount']) if (order[k] === undefined) keep[k] = old[k];
     return Object.assign(keep, order);
   }
 
   upsertOrder(order) {
     const o = this.normalizeOrder(this.withPasteFields(order));
+    // «Виконано» без суми чекало, поки людина впише суму: вписала — знову «Виконано»
+    if (o.status === 'nodata' && o.track && o.track.noAmount && o.amount > 0) { o.status = 'ok'; o.track.noAmount = false; }
     if (!o.id) o.id = this.store.nextId();
     const i = this.data.orders.findIndex((x) => x.id === o.id);
     if (i >= 0) this.data.orders[i] = o; else this.data.orders.push(o);
@@ -377,19 +382,22 @@ class Service {
   // Підставити зведення в замовлення. withDate — також дату (з маркетплейсу або дата накладної).
   applyTracking(o, t, { withDate } = {}) {
     const before = { status: o.status, amount: o.amount, date: o.date, channel: o.channel, number: o.number };
-    // Рядок таблиці шукається кабінетами свого працівника; якщо суми не дали (замовлення в чужому кабінеті,
-    // лише Нова Пошта без ключа відправника), беремо те, що програма вже знає про цей ТТН в авто-наборі.
-    if (o.source === 'manual' && o.number && (t.amount == null || !t.channel || !t.product || !t.date)) {
+    // Сума: маркетплейс → (рядок таблиці: авто-набір за тим самим ТТН) → сума з вставленої таблиці → Нова Пошта останньою
+    // (власник 2026-11-21). Якщо кабінети свого працівника суми не дали (замовлення в чужому кабінеті, лише Нова Пошта),
+    // беремо те, що програма вже знає про цей ТТН в авто-наборі.
+    const npAmountOnly = () => t.amount == null || t.amountSource === 'Нова Пошта';
+    if (o.source === 'manual' && o.number && (npAmountOnly() || !t.channel || !t.product || !t.date)) {
       const a = this.findExisting(null, o.number, { source: 'auto' });
       if (a) {
         t = Object.assign({}, t);
-        if (t.amount == null && a.amount) { t.amount = a.amount; t.note = (t.note ? t.note + '; ' : '') + 'сума з авто-набору'; }
+        if (npAmountOnly() && a.amount) { t.amount = a.amount; t.amountSource = a.channel || 'авто-набір'; t.note = (t.note ? t.note + '; ' : '') + 'сума з авто-набору'; }
         if (!t.channel) t.channel = a.channel;
         if (!t.product) t.product = a.product;
         if (!t.date) t.date = a.date;
         if (!t.found && a.status) { t.found = true; t.status = a.status; }
       }
     }
+    if (o.tableAmount > 0 && npAmountOnly()) t = Object.assign({}, t, { amount: o.tableAmount, amountSource: 'таблиця', note: (t.note ? t.note + '; ' : '') + 'сума з таблиці' });
     o.status = t.status;
     if (t.amount != null) o.amount = o.dup ? 0 : lib.round2(t.amount); // дубль ТТН: сума врахована в першому рядку
     if (t.channel) o.channel = t.channel;
@@ -399,6 +407,9 @@ class Service {
     const src = t.orderId ? t : (t.mp && t.mp.orderId ? t.mp : null);
     if (src && !o.orderId) { o.orderId = String(src.orderId); o.kind = mp.MP_ORDER.includes(src.kind) ? src.kind : ''; }
     o.track = { checked: todayLocal(), note: t.note, problem: t.problem, np: t.np, mp: t.mp, rd: t.rd };
+    // «Виконано» без суми (передплата на НП — накладеного платежу немає, а ніде більше суми немає) — не 0 у зарплату,
+    // а «Немає даних»: людина впише суму (lib.statusDetail підкаже оголошену вартість НП).
+    if (o.status === 'ok' && !o.dup && !(o.amount > 0)) { o.status = 'nodata'; o.track.noAmount = true; }
     return before.status !== o.status || before.amount !== o.amount || before.date !== o.date || before.channel !== o.channel || before.number !== o.number;
   }
 
@@ -488,7 +499,7 @@ class Service {
       const cells = raw.map((c) => c.replace(/\s+/g, ' ').trim());
       if (!cells.some(Boolean)) return;
       const shown = raw.map((c) => c.replace(/\r/g, '').trim()); // для сітки у вікні: клітинка як у таблиці, з переносами
-      let number = '', emp = null, date = '', empCol = -1;
+      let number = '', emp = null, date = '', empCol = -1, amount = 0;
       const rest = [];
       for (const [col, c] of cells.entries()) {
         if (!c) continue;
@@ -498,6 +509,10 @@ class Service {
         if (d) { date = d; continue; }
         const e = !emp && !/^\d+$/.test(c) && this.resolveEmployee(c); // лише за ім’ям: «3» у колонці A — номер рядка, не id працівника
         if (e) { emp = e; empCol = col; continue; }
+        // сума: «590», «1 089,00», «378 грн» — не в колонці A (там номер рядка); остання ненульова в рядку —
+        // ціна, яку людина вписала поруч із «Сумою» 0, важливіша
+        const a = col > 0 && /^\d{1,5}(?:[.,]\d{1,2})?$/.test(c.replace(/[\s\u00a0]|грн\.?$/g, '')) ? Number(c.replace(/[\s\u00a0]|грн\.?$/g, '').replace(',', '.')) : NaN;
+        if (Number.isFinite(a)) { if (a > 0) amount = a; continue; }
         rest.push(c);
       }
       if (!number) {
@@ -509,7 +524,7 @@ class Service {
       }
       if (date) packDate = date;
       const it = { row: idx + 1, cells: shown, line: cells.filter(Boolean).join(' | '), number, product: rest.find((c) => /\p{L}/u.test(c)) || '',
-        packDate, dupOf: 0, employeeId: emp ? emp.id : null, employee: emp ? emp.name : '', empCol, raw: cells };
+        packDate, amount, dupOf: 0, employeeId: emp ? emp.id : null, employee: emp ? emp.name : '', empCol, raw: cells };
       if (number && firstRow.has(number)) it.dupOf = firstRow.get(number);
       else if (number) firstRow.set(number, it.row);
       items.push(it);
@@ -546,7 +561,8 @@ class Service {
     for (const it of items) {
       let o = null;
       if (it.reason) { // неправильний рядок — лише свій же неправильний запис (за номером або текстом рядка)
-        o = it.number ? free(byNumber.get(it.number), (x) => x.invalid) : free(byProduct.get(`!|${it.line}`));
+        // і за товаром: у вивантаженій з застосунку таблиці товар неправильного запису — це текст рядка першої вставки
+        o = it.number ? free(byNumber.get(it.number), (x) => x.invalid) : free(byProduct.get(`!|${it.line}`)) || free(byProduct.get(`!|${it.product}`));
         if (o) taken.add(o.id);
         it.order = o;
         continue;
@@ -585,7 +601,7 @@ class Service {
       const owner = it.employee || (o && (this.resolveEmployee(o.employeeId) || {}).name) || '';
       // працівник рядка без імені до запису — лише припущення з бази: остаточно його визначить кабінет
       return { row: it.row, cells: it.cells, number: it.number, dupOf: it.dupOf, state: it.outcome || (it.order ? 'existing' : 'new'), reason: it.reason || '',
-        employee: owner, employeeGuess: !it.employee && !it.outcome && !!owner, amount: o ? o.amount : null, status: o ? o.status : (it.number ? '' : 'nodata'),
+        employee: owner, employeeGuess: !it.employee && !it.outcome && !!owner, amount: o && (o.amount > 0 || it.outcome) ? o.amount : it.amount || (o ? o.amount : null), status: o ? o.status : (it.number ? '' : 'nodata'),
         statusLabel: o ? lib.statusLabel(o.status, o.track) : (it.number ? '' : lib.STATUS.nodata) };
     });
     const count = (state) => rows.filter((r) => r.state === state).length;
@@ -625,15 +641,20 @@ class Service {
       const invalid = it.reason || '';
       let o = it.order;
       if (o) {
-        const before = JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid]);
+        const before = JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid, o.tableAmount]);
         Object.assign(o, { employeeId: empId, month: month || o.month, pasted: true, dup: dupOf(o, o.number), invalid });
+        if (it.amount) o.tableAmount = it.amount;
+        if (it.amount && !t && !o.dup) {
+          o.amount = it.amount;
+          if (o.status === 'nodata' && o.track && o.track.noAmount) { o.status = 'ok'; o.track.noAmount = false; } // суму вписали в таблиці
+        }
         if (!o.product && it.product) o.product = it.product;
         if (t) this.applyTracking(o, t);
         if (o.dup) o.amount = 0;
-        it.outcome = before === JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid]) ? 'unchanged' : 'updated';
+        it.outcome = before === JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid, o.tableAmount]) ? 'unchanged' : 'updated';
       } else {
         o = this.normalizeOrder({ employeeId: empId, number: it.number, source: 'manual', product: invalid && !it.number ? it.line : it.product || (t && t.product), channel: t && t.channel,
-          status: t ? t.status : 'nodata', amount: 0, date: (t && t.date) || it.packDate || todayLocal(), month, pasted: true, invalid });
+          status: t ? t.status : 'nodata', amount: t ? 0 : it.amount, tableAmount: it.amount, date: (t && t.date) || it.packDate || todayLocal(), month, pasted: true, invalid });
         o.id = this.store.nextId();
         o.dup = dupOf(o, o.number);
         if (o.number && !firstId.has(o.number)) firstId.set(o.number, o.id);
