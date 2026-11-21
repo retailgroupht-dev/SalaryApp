@@ -171,7 +171,8 @@ class Service {
       tableAmount: Number(order.tableAmount) > 0 ? lib.round2(Number(order.tableAmount)) : 0, // сума з вставленої таблиці (важливіша за НП)
       track: order.track && typeof order.track === 'object'
         ? { checked: String(order.track.checked || ''), note: String(order.track.note || ''), problem: String(order.track.problem || ''),
-          np: order.track.np || null, mp: order.track.mp || null, rd: order.track.rd || null, noAmount: !!order.track.noAmount }
+          np: order.track.np || null, mp: order.track.mp || null, rd: order.track.rd || null, noAmount: !!order.track.noAmount,
+          amountSource: String(order.track.amountSource || '') }
         : null,
     };
   }
@@ -385,7 +386,7 @@ class Service {
     // Сума: маркетплейс → (рядок таблиці: авто-набір за тим самим ТТН) → сума з вставленої таблиці → Нова Пошта останньою
     // (власник 2026-11-21). Якщо кабінети свого працівника суми не дали (замовлення в чужому кабінеті, лише Нова Пошта),
     // беремо те, що програма вже знає про цей ТТН в авто-наборі.
-    const npAmountOnly = () => t.amount == null || t.amountSource === 'Нова Пошта';
+    const npAmountOnly = () => t.amount == null || /^Нова Пошта/.test(t.amountSource || ''); // накладений платіж або оголошена вартість
     if (o.source === 'manual' && o.number && (npAmountOnly() || !t.channel || !t.product || !t.date)) {
       const a = this.findExisting(null, o.number, { source: 'auto' });
       if (a) {
@@ -406,7 +407,7 @@ class Service {
     if (t.ttn && !o.number) o.number = t.ttn; // ТТН з'явився в кабінеті після створення замовлення
     const src = t.orderId ? t : (t.mp && t.mp.orderId ? t.mp : null);
     if (src && !o.orderId) { o.orderId = String(src.orderId); o.kind = mp.MP_ORDER.includes(src.kind) ? src.kind : ''; }
-    o.track = { checked: todayLocal(), note: t.note, problem: t.problem, np: t.np, mp: t.mp, rd: t.rd };
+    o.track = { checked: todayLocal(), note: t.note, problem: t.problem, np: t.np, mp: t.mp, rd: t.rd, amountSource: t.amount != null ? t.amountSource || '' : '' };
     // «Виконано» без суми (передплата на НП — накладеного платежу немає, а ніде більше суми немає) — не 0 у зарплату,
     // а «Немає даних»: людина впише суму (lib.statusDetail підкаже оголошену вартість НП).
     if (o.status === 'ok' && !o.dup && !(o.amount > 0)) { o.status = 'nodata'; o.track.noAmount = true; }

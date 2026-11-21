@@ -135,7 +135,12 @@ const RD_ERROR = /^HTTP|з’єднання|не знайдено/; // Rozetka D
 // order (необов’язково): запис без ТТН і без № замовлення — перевіряти нема чого.
 const NO_NUMBER = 'Немає ТТН чи номера замовлення';
 const DUP = 'Дубль ТТН у таблиці — сума врахована в першому рядку';
+// Сума — оголошена вартість НП (передплата, накладеного платежу немає): видно, звідки сума.
 function statusDetail(track, order) {
+  const d = statusDetailBase(track, order);
+  return track && track.amountSource === 'Нова Пошта (оголошена вартість)' && order && order.status === 'ok' ? `${d} · сума — оголошена вартість НП` : d;
+}
+function statusDetailBase(track, order) {
   if (order && order.invalid) return `Неправильний рядок: ${order.invalid}`;
   if (order && !order.number && !order.orderId) return NO_NUMBER;
   if (order && order.status === 'nodata' && track && track.noAmount) {

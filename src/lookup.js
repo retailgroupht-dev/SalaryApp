@@ -86,8 +86,12 @@ function combine(number, npR, mpR, rdR) {
   else if (rdOk || npOk || (mpR && mpR.done === false)) status = 'checking';
   else status = 'ok';
 
-  const amount = mpR && mpR.amount > 0 ? mpR.amount : (npOk && npR.amount != null ? npR.amount : null);
-  const amountSource = mpR && mpR.amount > 0 ? mpR.channel : (npOk && npR.amount != null ? 'Нова Пошта' : '');
+  // Сума: маркетплейс → накладений платіж НП → оголошена вартість НП (останньою; рішення власника 2026-11-21: передплата,
+  // інших сум немає). Між маркетплейсом і НП — сума з вставленої таблиці (service.applyTracking). 0 і порожнє — не сума.
+  const npCod = npOk && npR.amount > 0 ? npR.amount : null;
+  const npAnnounced = npOk && npR.announced > 0 ? npR.announced : null;
+  const amount = mpR && mpR.amount > 0 ? mpR.amount : npCod != null ? npCod : npAnnounced;
+  const amountSource = mpR && mpR.amount > 0 ? mpR.channel : npCod != null ? 'Нова Пошта' : npAnnounced != null ? 'Нова Пошта (оголошена вартість)' : '';
   const date = (mpR && mpR.date) || (npOk && npR.dateCreated) || '';
   const notes = [];
   if (mpR) notes.push(`${mpR.channel}: ${mpR.status}${mpR.orderId ? ` (№${mpR.orderId})` : ''}`);

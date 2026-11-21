@@ -14,7 +14,12 @@ const numCells = (o) => `<td class="nowrap">${copyCell(o.number, 'ТТН')}</td>
 // Статус: бейдж + рядком нижче деталь (що сказав перевізник або кабінет); повний опис — у підказці.
 const NP_SHORT = { 1: 'Створено, ще не відправлено', 2: 'Накладну видалено', 3: 'Номер не знайдено' };
 const RD_ERROR = /^HTTP|з’єднання|не знайдено/;
+// Сума — оголошена вартість НП (передплата, накладеного платежу немає): видно, звідки сума.
 function statusDetail(track, order) {
+  const d = statusDetailBase(track, order);
+  return track && track.amountSource === 'Нова Пошта (оголошена вартість)' && order && order.status === 'ok' ? `${d} · сума — оголошена вартість НП` : d;
+}
+function statusDetailBase(track, order) {
   if (order && order.invalid) return `Неправильний рядок: ${order.invalid}`;
   if (order && !order.number && !order.orderId) return 'Немає ТТН чи номера замовлення';
   if (order && order.status === 'nodata' && track && track.noAmount) {
