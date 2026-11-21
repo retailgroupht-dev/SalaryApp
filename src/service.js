@@ -649,7 +649,8 @@ class Service {
           o.amount = it.amount;
           if (o.status === 'nodata' && o.track && o.track.noAmount) { o.status = 'ok'; o.track.noAmount = false; } // суму вписали в таблиці
         }
-        if (!o.product && it.product) o.product = it.product;
+        // назва з таблиці головна (власник 2026-11-21): опис посилки НП («Розетка») чи назва з кабінету — лише коли своєї немає
+        if (it.product && !invalid) o.product = it.product;
         if (t) this.applyTracking(o, t);
         if (o.dup) o.amount = 0;
         it.outcome = before === JSON.stringify([o.employeeId, o.month, o.dup, o.product, o.status, o.amount, o.channel, o.invalid, o.tableAmount]) ? 'unchanged' : 'updated';

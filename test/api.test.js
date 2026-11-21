@@ -591,3 +591,19 @@ test('Нова Пошта остання: передплата — сума з �
     assert.strictEqual(t.service.data.orders.find((x) => x.id === g.id).status, 'ok');
   } finally { delete NP_DOCS[20451574699852]; delete NP_DOCS[20451574744987]; await t.cleanup(); }
 });
+
+test('вставка: назва товару з таблиці головна — опис посилки НП її не затирає, повторна вставка оновлює', async () => {
+  const t = await setup();
+  try {
+    // рядок лише з ТТН: назви в таблиці немає — береться опис посилки НП («щітка»)
+    await t.call('POST', '/api/import/paste', { rows: [['20451520852070', 'Настя']] });
+    const o = t.service.data.orders.find((x) => x.number === '20451520852070');
+    assert.strictEqual(o.product, 'щітка');
+    // та сама посилка з назвою в таблиці — назва з таблиці замінює опис НП, перевірка її не затирає
+    await t.call('POST', '/api/import/paste', { rows: [['дубінка дешева', '20451520852070', 'Настя']] });
+    assert.strictEqual(o.product, 'дубінка дешева');
+    await t.call('POST', '/api/track/refresh', { ids: [o.id] });
+    assert.strictEqual(o.product, 'дубінка дешева');
+    assert.strictEqual(t.service.data.orders.length, 1);
+  } finally { await t.cleanup(); }
+});
